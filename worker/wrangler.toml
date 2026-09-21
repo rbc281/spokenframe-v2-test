@@ -1,0 +1,12 @@
+name = "spokenframe-tts"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+[vars]
+# Replace these examples before deployment. Comma-separate origins if needed.
+ALLOWED_ORIGINS = "http://localhost:8080,https://YOUR-GITHUB-USERNAME.github.io"
+ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
+
+# Never put ELEVENLABS_API_KEY in this file. Add it with `wrangler secret put`
+# or in Cloudflare: Workers & Pages → spokenframe-tts → Settings → Variables and Secrets.
