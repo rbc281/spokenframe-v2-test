@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+playwright-report/
+test-results/
+.dev.vars
+worker/.dev.vars
+.wrangler/
+worker/.wrangler/
+*.secret

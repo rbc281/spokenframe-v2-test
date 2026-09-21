@@ -1,0 +1,19 @@
+{
+  "name": "spokenframe",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A synchronized screenplay listening experience for Final Draft, PDF, and Fountain.",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node tests/run-node-tests.mjs && node tests/run-v2-tests.mjs && node tests/run-storage-tests.mjs && node tests/run-app-tests.mjs && node --test worker/test/worker.test.mjs",
+    "test:browser": "node tests/run-browser-tests.cjs"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "^0.9.12",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.14.5",
+    "pdfjs-dist": "^6.3.289",
+    "playwright": "^1.55.0"
+  }
+}

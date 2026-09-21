@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0907">
+    <meta name="description" content="SpokenFrame turns Final Draft, PDF, and Fountain screenplays into synchronized spoken playback.">
+    <title>SpokenFrame — Your Screenplay. Read Aloud.</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app-shell">
+      <header class="topbar" aria-label="Application header">
+        <button class="brand" id="brand-button" type="button" aria-label="SpokenFrame home">
+          <img src="assets/logo.svg" alt="" width="34" height="34"><span>SpokenFrame</span>
+        </button>
+        <div class="topbar-actions" id="player-header-actions" hidden>
+          <button class="quiet-button" id="cast-button" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-2a4 4 0 0 0-3-3.9M16 2.1a4 4 0 0 1 0 7.8"/></svg><span>Cast</span>
+          </button>
+          <label class="quiet-button file-button" for="replace-file-input">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5"/></svg><span>New script</span>
+          </label>
+          <input class="visually-hidden" id="replace-file-input" type="file" accept=".fdx,.pdf,.fountain,.spmd,application/pdf,application/xml,text/plain">
+        </div>
+      </header>
+
+      <main id="main">
+        <section class="landing" id="landing-view" aria-labelledby="landing-title">
+          <div class="hero-copy">
+            <p class="eyebrow">Listen to the page</p>
+            <h1 id="landing-title">Your Screenplay.<br>Read Aloud.</h1>
+            <p class="hero-subtitle">A focused, synchronized listening experience for screenplays. Import locally, press Play, and follow every line.</p>
+          </div>
+          <div class="resume-card" id="resume-card" hidden>
+            <div class="resume-art" aria-hidden="true"><span id="resume-format">SCRIPT</span></div>
+            <div class="resume-copy"><p class="resume-label">Continue listening</p><h2 id="resume-title">Untitled Screenplay</h2><p id="resume-detail">Ready to resume</p><div class="mini-progress" aria-hidden="true"><span id="resume-progress"></span></div></div>
+            <button class="resume-button" id="resume-button" type="button" aria-label="Resume screenplay"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 9 6-9 6z"/></svg></button>
+          </div>
+          <div class="upload-card" id="drop-zone">
+            <input class="visually-hidden" id="file-input" type="file" accept=".fdx,.pdf,.fountain,.spmd,application/pdf,application/xml,text/plain">
+            <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 14v5h14v-5"/></svg></div>
+            <h2>Drop your screenplay here</h2>
+            <p class="format-line"><strong>Final Draft (.fdx) recommended</strong> <span>·</span> PDF <span>·</span> Fountain</p>
+            <p class="format-detail">Final Draft provides the most accurate character, dialogue, scene, and structural detection.</p>
+            <label class="primary-button" for="file-input">Choose screenplay</label>
+            <p class="privacy-note"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2m-11 0h12v10H6z"/></svg>Screenplay structure stays on this device. Premium playback sends only the current audio passages for generation.</p>
+          </div>
+          <p class="drive-note">Set up your screenplay before driving. During playback, use the large controls or supported lock-screen controls.</p>
+        </section>
+
+        <section class="player-view" id="player-view" hidden aria-label="Screenplay player">
+          <div class="player-layout">
+            <aside class="screenplay-panel" aria-label="Screenplay text">
+              <div class="script-heading"><p class="eyebrow" id="script-format">SCREENPLAY</p><h1 id="script-title">Untitled Screenplay</h1><p id="script-meta">0 scenes · 0 characters</p></div>
+              <div class="script-pages" id="script-pages" tabindex="0" aria-label="Scrollable screenplay"></div>
+            </aside>
+            <section class="now-playing" aria-labelledby="now-playing-heading">
+              <div class="now-playing-inner">
+                <div class="scene-context"><p class="eyebrow">CURRENT SCENE</p><p id="current-scene">Beginning</p></div>
+                <div class="spoken-card" aria-live="polite" aria-atomic="true">
+                  <p class="speaker" id="current-speaker">Narrator</p><h2 id="now-playing-heading">Ready when you are.</h2>
+                  <p class="passage-kind"><span id="passage-kind">Screenplay ready</span><span class="audio-status" id="audio-status">Device voice</span></p>
+                </div>
+                <div class="playback-area">
+                  <div class="timeline-row"><span id="progress-current">1</span><input id="progress-slider" type="range" min="0" max="100" value="0" aria-label="Screenplay progress"><span id="progress-total">1</span></div>
+                  <div class="transport" aria-label="Playback controls">
+                    <button class="transport-button" id="previous-button" type="button" aria-label="Previous passage"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 5v14M19 6l-9 6 9 6z"/></svg></button>
+                    <button class="play-button" id="play-button" type="button" aria-label="Play"><span class="loading-ring" aria-hidden="true"></span><svg class="play-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 9 6-9 6z"/></svg><svg class="pause-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+                    <button class="transport-button" id="next-button" type="button" aria-label="Next passage"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 5v14M5 6l9 6-9 6z"/></svg></button>
+                  </div>
+                  <div class="quick-controls">
+                    <label class="select-control"><span>Scene</span><select id="scene-select" aria-label="Jump to scene"></select></label>
+                    <label class="select-control speed-control"><span>Speed</span><select id="speed-select" aria-label="Playback speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div class="modal-backdrop" id="cast-modal" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cast-modal-title">
+        <div class="modal-header"><div><p class="eyebrow">CAST</p><h2 id="cast-modal-title">Voices</h2><p>Everyone begins with one consistent voice. Changes are saved for this screenplay.</p></div><button class="icon-button" id="close-cast-button" type="button" aria-label="Close Cast"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+        <div class="provider-row"><label for="provider-select"><strong>Playback voice source</strong><span>Premium uses generated audio; device voices are free.</span></label><select id="provider-select"><option value="elevenlabs">Premium AI</option><option value="browser">Device voices</option></select></div>
+        <div class="voice-list" id="voice-list"></div>
+        <div class="modal-footer"><button class="secondary-button" id="auto-assign-button" type="button">Auto Assign Voices</button><button class="primary-button" id="done-cast-button" type="button">Done</button></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="review-modal" hidden>
+      <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="review-title"><div class="modal-header"><div><p class="eyebrow">REVIEW IMPORT</p><h2 id="review-title">This PDF may not have imported cleanly</h2><p id="review-message"></p></div></div><div class="modal-footer"><button class="secondary-button" id="review-cancel" type="button">Choose another file</button><button class="primary-button" id="review-continue" type="button">Open anyway</button></div></section>
+    </div>
+
+    <div class="modal-backdrop" id="fallback-modal" hidden>
+      <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="fallback-title"><div class="modal-header"><div><p class="eyebrow">PLAYBACK PAUSED</p><h2 id="fallback-title">Premium audio is unavailable</h2><p id="fallback-message">You can try premium audio again or continue with a free device voice.</p></div></div><div class="modal-footer"><button class="secondary-button" id="fallback-device" type="button">Use device voice</button><button class="primary-button" id="fallback-retry" type="button">Try again</button></div></section>
+    </div>
+
+    <noscript><p class="noscript">SpokenFrame needs JavaScript enabled to read your screenplay.</p></noscript>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
