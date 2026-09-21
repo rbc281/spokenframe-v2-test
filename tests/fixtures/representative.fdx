@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<FinalDraft DocumentType="Script" Template="No" Version="5">
+  <Content>
+    <Paragraph Type="Scene Heading"><Text>EXT. LOS ANGELES - NIGHT</Text></Paragraph>
+    <Paragraph Type="Action"><Text>Traffic glows beneath a marine layer. A bus exhales at the curb.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>EVAN (V.O.)</Text></Paragraph>
+    <Paragraph Type="Parenthetical"><Text>(carefully)</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Take your time.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>LENA PARK (O.S.)</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>You always say that.</Text></Paragraph>
+    <Paragraph Type="Action"><Text>Evan watches the light change.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>EVAN (CONT'D)</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Not always.</Text></Paragraph>
+    <Paragraph Type="Transition"><Text>CUT TO:</Text></Paragraph>
+    <Paragraph Type="Scene Heading"><Text>INT. TRAFFIC OPERATIONS CENTER - LATER</Text></Paragraph>
+    <Paragraph Type="Action"><Text>Rows of signals pulse across a wall map.</Text></Paragraph>
+  </Content>
+  <TitlePage><Content><Paragraph Type="Title"><Text>PASSENGER</Text></Paragraph></Content></TitlePage>
+</FinalDraft>
+
