@@ -10,10 +10,23 @@ test("rejects origins outside the allowlist", async () => {
   assert.equal(response.status, 403);
 });
 
+test("answers approved CORS preflight without generating audio", async () => {
+  const response = await worker.fetch(request("/v1/tts", { method: "OPTIONS" }), env);
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://user.github.io");
+  assert.match(response.headers.get("Access-Control-Allow-Methods"), /POST/);
+});
+
 test("requires server-side secret configuration", async () => {
   const response = await worker.fetch(request("/v1/status"), { ALLOWED_ORIGINS: env.ALLOWED_ORIGINS });
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, "not_configured");
+});
+
+test("uses Flash v2.5 as the safe default model", async () => {
+  const response = await worker.fetch(request("/v1/status"), { ELEVENLABS_API_KEY: env.ELEVENLABS_API_KEY, ALLOWED_ORIGINS: env.ALLOWED_ORIGINS });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).model, "eleven_flash_v2_5");
 });
 
 test("validates text and voice identifiers before provider calls", async () => {
@@ -34,6 +47,7 @@ test("proxies bounded speech requests without exposing the API key", async () =>
     assert.equal(response.status, 200);
     assert.equal(upstream.init.headers["xi-api-key"], env.ELEVENLABS_API_KEY);
     assert.equal(upstream.init.body.includes(env.ELEVENLABS_API_KEY), false);
+    assert.equal(JSON.parse(upstream.init.body).model_id, "test-model");
     assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://user.github.io");
     assert.equal(response.headers.get("Cache-Control"), "no-store");
   } finally { globalThis.fetch = originalFetch; }
@@ -45,6 +59,8 @@ test("maps upstream quota errors to a safe public response", async () => {
   try {
     const response = await worker.fetch(request("/v1/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "A passage.", voiceId: "voice_12345678" }) }), env);
     assert.equal(response.status, 429);
-    assert.equal((await response.json()).code, "quota");
+    const payload = await response.json();
+    assert.equal(payload.code, "quota");
+    assert.equal(payload.message, "Premium audio credits are unavailable.");
   } finally { globalThis.fetch = originalFetch; }
 });
