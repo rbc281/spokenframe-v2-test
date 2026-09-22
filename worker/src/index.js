@@ -1,5 +1,5 @@
 const MAX_TEXT_LENGTH = 1200;
-const DEFAULT_MODEL = "eleven_multilingual_v2";
+const DEFAULT_MODEL = "eleven_flash_v2_5";
 const ALLOWED_VOICE_ID = /^[A-Za-z0-9_-]{8,80}$/;
 
 function allowedOrigins(env) {
@@ -29,8 +29,8 @@ function json(body, status, headers = {}) {
 function publicError(status, code, message, cors) { return json({ code, message }, status, cors); }
 
 function mapUpstreamError(status) {
-  if (status === 401) return [502, "provider_auth", "Premium audio is not configured correctly."];
-  if (status === 402 || status === 429) return [429, "quota", "Premium audio has reached its current usage limit. You can try again later or use a device voice."];
+  if (status === 401 || status === 403) return [502, "provider_auth", "Premium audio isn’t configured correctly."];
+  if (status === 402 || status === 429) return [429, "quota", "Premium audio credits are unavailable."];
   if (status >= 500) return [503, "provider_unavailable", "Premium audio is temporarily unavailable."];
   return [502, "provider_error", "Premium audio could not generate that passage."];
 }
@@ -88,7 +88,7 @@ async function handleSpeech(request, env, cors) {
     body: JSON.stringify({ text, model_id: model, voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0, use_speaker_boost: true } })
   });
   if (!response.ok) {
-    console.warn("ElevenLabs generation failed", { status: response.status });
+    console.warn("Premium generation failed", { status: response.status });
     const [status, code, message] = mapUpstreamError(response.status);
     return publicError(status, code, message, cors);
   }
