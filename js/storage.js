@@ -54,7 +54,7 @@ function migrateRecord(record) {
     ...record,
     schemaVersion: 2,
     script: { schemaVersion: 2, confidence: { score: 1, warnings: [], reviewRecommended: false }, ...record.script },
-    preferences: { currentIndex: 0, chunkIndex: 0, chunkPosition: 0, rate: 1, provider: "browser", voiceAssignments: {}, ...(record.preferences || {}) }
+    preferences: { currentIndex: 0, chunkIndex: 0, chunkPosition: 0, rate: 1, provider: "browser", readCharacterNames: false, voiceAssignments: {}, ...(record.preferences || {}) }
   };
 }
 
@@ -82,16 +82,31 @@ export async function audioCacheKey({ provider, model, voiceId, text, settings =
 }
 
 export async function getCachedAudio(id) {
+  return (await getCachedAudioEntry(id))?.blob || null;
+}
+
+export async function getCachedAudioEntry(id) {
   const entry = await requestInStore(AUDIO_CACHE, "readonly", (store) => store.get(id));
   if (!entry?.blob || !(entry.blob instanceof Blob)) return null;
   requestInStore(AUDIO_CACHE, "readwrite", (store) => store.put({ ...entry, updatedAt: Date.now() })).catch(() => {});
-  return entry.blob;
+  return entry;
 }
 
 export async function putCachedAudio(id, blob, metadata = {}) {
   if (!(blob instanceof Blob) || !blob.size) throw new Error("Generated audio was empty.");
   await requestInStore(AUDIO_CACHE, "readwrite", (store) => store.put({ id, blob, bytes: blob.size, metadata, updatedAt: Date.now() }));
   pruneAudioCache().catch(() => {});
+}
+
+export async function updateCachedAudioMetadata(id, metadata = {}) {
+  const entry = await requestInStore(AUDIO_CACHE, "readonly", (store) => store.get(id));
+  if (!entry?.blob) return false;
+  await requestInStore(AUDIO_CACHE, "readwrite", (store) => store.put({
+    ...entry,
+    metadata: { ...(entry.metadata || {}), ...metadata },
+    updatedAt: Date.now()
+  }));
+  return true;
 }
 
 export async function deleteCachedAudio(id) {
