@@ -3,12 +3,16 @@ export class PremiumTtsError extends Error {
 }
 
 export class ElevenLabsProvider {
-  constructor({ workerUrl, fetchImpl = fetch } = {}) {
+  constructor({ workerUrl, fetchImpl } = {}) {
     this.id = "elevenlabs";
     this.name = "Premium AI voices";
     this.kind = "audio";
     this.workerUrl = String(workerUrl || "").replace(/\/$/, "");
-    this.fetch = fetchImpl;
+    // Native browser fetch is receiver-sensitive. Wrapping the call keeps it
+    // bound to the browser global instead of invoking it as a provider method.
+    this.fetch = fetchImpl
+      ? (...args) => fetchImpl(...args)
+      : (...args) => globalThis.fetch(...args);
     this.model = "eleven_multilingual_v2";
   }
   get configured() { return /^https:\/\//i.test(this.workerUrl); }
