@@ -3,7 +3,7 @@ import { BrowserSpeechEngine, voiceKey } from "../speech-engine.js";
 export class BrowserTtsProvider {
   constructor(synth = window.speechSynthesis) {
     this.id = "browser";
-    this.name = "Device voices";
+    this.name = "Standard Audio";
     this.kind = "speech";
     this.engine = new BrowserSpeechEngine(synth);
   }
