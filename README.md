@@ -2,79 +2,87 @@
 
 **Your Screenplay. Read Aloud.**
 
-SpokenFrame is a focused screenplay listener: import a screenplay, press Play, and follow the synchronized text while the screenplay is read aloud. It supports Final Draft (`.fdx`), text-based PDF, and Fountain files.
+SpokenFrame is an audiobook-style screenplay listener: import a screenplay, press Play, and follow the synchronized text while it is read aloud. It supports Final Draft (`.fdx`), text-based PDF, and Fountain.
 
-V2 adds premium ElevenLabs audio through a secure Cloudflare Worker while preserving free device voices as an explicit fallback. The ElevenLabs key is never placed in the website or sent to the browser.
+V3 adds a sharper black, warm-white, and marker-yellow identity; lower-cost Premium Audio; screenplay-aware navigation; clearer progress and time remaining; optional character-name reading; safer previews; dialogue-volume Cast ordering; and stronger cost controls.
 
 ## Start here
 
-- If you are deploying this yourself and do not code, follow [Beginner Deployment Guide](docs/BEGINNER-DEPLOYMENT.md).
-- For the system design, security boundaries, parsers, caching, and developer workflow, read [Architecture](docs/ARCHITECTURE.md).
-- Before replacing your current live version, use the [Real-Device QA Checklist](docs/REAL-DEVICE-QA.md).
+- New to deployment? Follow the [Beginner Deployment Guide](docs/BEGINNER-DEPLOYMENT.md).
+- For the system design, security boundary, caching, and developer workflow, read [Architecture](docs/ARCHITECTURE.md).
+- After deployment, use the [Real-Device QA Checklist](docs/REAL-DEVICE-QA.md).
 
-## What V2 does
+## What V3 does
 
-- Imports Final Draft, Fountain, and normal text-based screenplay PDFs locally in the browser
+- Imports Final Draft, Fountain, and normal text-based screenplay PDFs locally
 - Uses one normalized screenplay model for every format
-- Reads scene headings, action, dialogue, and transitions; parentheticals and page furniture are skipped
-- Keeps displayed screenplay text authentic while expanding `INT.`, `EXT.`, and `INT./EXT.` only for speech
-- Starts every role on one consistent default voice
-- Provides a simple **Cast** panel for manual voice changes, previews, and opt-in **Auto Assign Voices**
-- Generates only the current premium-audio chunk, then prepares the next two
-- Caches generated MP3 blobs in IndexedDB so identical audio can be replayed without another generation request
-- Preserves synchronized text highlighting, playback speed, scene navigation, Previous/Next, and resume position
-- Uses real browser media playback and Media Session metadata for supported lock-screen controls
-- Migrates existing V1 screenplay records without deleting them
+- Reads scene headings, action, dialogue, and transitions while skipping parentheticals and page furniture
+- Keeps displayed text authentic while expanding `INT.`, `EXT.`, and `INT./EXT.` only for speech
+- Starts immediately with one consistent voice; Cast customization remains optional
+- Sorts Cast with Narrator first, then characters by spoken dialogue-block count
+- Offers **Premium Audio** and free **Standard Audio** without exposing provider/model language in the player
+- Uses Eleven Flash v2.5 for faster generation and approximately half-credit-per-character API usage
+- Shows an estimate based only on the exact text that would be sent for Premium Audio
+- Generates the current premium chunk and conservatively prepares only the next chunk
+- Deduplicates in-flight requests and reuses deterministic IndexedDB audio blobs
+- Provides Previous/Next Scene plus Back/Forward 3 spoken passages
+- Shows progress as percentage and speed-aware estimated time remaining
+- Optionally reads character names, off by default
+- Auto-saves position, speed, Cast, Audio Quality, and character-name preference
+- Uses real media playback and Media Session metadata for supported lock-screen controls
+- Migrates existing V1/V2 screenplay records without deleting them
 
-## Privacy and security in plain English
+## Privacy and security
 
-The selected screenplay is parsed in your browser. SpokenFrame does not send the whole file to the Worker. When premium playback is used, only the text of the small passage currently needed for audio, plus its selected voice ID, is sent through your Worker to ElevenLabs.
+The screenplay is parsed in the browser. SpokenFrame does not send the whole file to the Worker. Premium playback sends only the small spoken passage currently needed and its selected voice ID.
 
-The public GitHub repository contains no ElevenLabs key. The key belongs only in the Cloudflare secret named `ELEVENLABS_API_KEY`.
+The repository contains no ElevenLabs key. The key belongs only in the Cloudflare secret named `ELEVENLABS_API_KEY`.
 
-The Worker validates origins, methods, content types, body size, text length, and voice-ID shape. It does not store screenplay text or generated audio. CORS/origin checks are useful browser restrictions, but they are **not authentication**. Keep the restricted credit limit on your ElevenLabs key while this remains a personal beta. The Worker code includes an optional Cloudflare rate-limiter hook for a later public release.
+The Worker validates origins, methods, content types, request size, text length, and voice-ID shape. It does not store screenplay text or generated audio. CORS is not authentication, so maintain a restricted ElevenLabs key/credit limit while this remains a personal beta.
+
+V3 intentionally does **not** provide cross-device audio caching. There is no user login or secure ownership boundary yet, and a public shared cache could expose private screenplay audio. Playback now uses a small cache interface so an authenticated private R2 adapter can be added later without rewriting the player.
 
 ## Supported files
 
 | Format | Support | Notes |
 |---|---|---|
 | Final Draft `.fdx` | Preferred | Most reliable scene, character, dialogue, and structural detection |
-| Fountain `.fountain` / `.spmd` | High confidence | Native parser; supports standard and forced elements |
-| Text-based `.pdf` | Heuristic | Uses bundled PDF.js; suspicious structures show a review warning |
-| Scanned/image-only PDF | Not supported | OCR is intentionally outside V2 |
+| Fountain `.fountain` / `.spmd` | High confidence | Native parser supports standard and forced elements |
+| Text-based `.pdf` | Heuristic | Bundled PDF.js; suspicious structures show a review warning |
+| Scanned/image-only PDF | Not supported | OCR remains intentionally out of scope |
 
 ## Project structure
 
 ```text
 index.html                  SpokenFrame interface
-styles.css                 Responsive dark/gold visual system
-assets/                    Product icon
-js/app.js                  UI, playback orchestration, Cast, Media Session
+styles.css                 Responsive V3 visual system
+assets/                    Compact app mark and favicon
+js/app.js                  Playback, Cast, previews, Media Session, persistence
+js/playback-utils.js       Cast sorting, speech text, credits, progress, navigation
+js/audio-cache.js          Local cache interface and future remote-cache boundary
 js/parsers/                Format adapters and normalized screenplay model
-js/tts/                    Browser and ElevenLabs provider adapters
+js/tts/                    Standard and premium provider adapters
 js/audio-chunks.js         Cost-aware chunking and unit mapping
 js/audio-player.js         HTML audio playback wrapper
 js/speech-normalizer.js    Audio-only screenplay abbreviation rules
-js/storage.js              V1 migration, screenplay state, audio blob cache
+js/storage.js              Migration, screenplay state, audio blob cache
 js/config.js               Public Worker URL only — never a secret
-vendor/pdfjs/               Pinned PDF.js distribution used locally
-worker/                     Cloudflare Worker proxy and its tests/config
-tests/                      Parser, player, cache, migration, and fixture tests
-docs/                       Beginner deployment, architecture, phone QA
+vendor/pdfjs/              Pinned local PDF.js distribution
+worker/                     Cloudflare Worker proxy and tests/config
+tests/                      Parser, player, cache, migration, UI, and Worker tests
+docs/                       Deployment, architecture, and phone QA
 ```
 
 ## Run locally
 
-You need a recent version of Node.js only for development and tests. The website itself is static.
+You need a recent Node.js version for tests. The deployed site itself is static.
 
 ```bash
 npm install
 npm start
 ```
 
-Open `http://localhost:8080`. Do not double-click `index.html`; browser security rules can block module and PDF worker files when opened directly from disk.
-
-Premium audio will remain unavailable locally until `js/config.js` contains your deployed public Worker URL and the Worker allows `http://localhost:8080`.
+Open `http://localhost:8080`. Do not double-click `index.html`; browsers can block modules and PDF worker files opened directly from disk.
 
 ## Tests
 
@@ -83,9 +91,9 @@ npm test
 npm run test:browser
 ```
 
-`npm test` covers FDX, Fountain, PDF heuristics, real PDF.js extraction, scanned PDFs, normalization, chunk mapping, V1 storage migration, audio caching, Cast behavior, resume, and Worker validation/error mapping.
+`npm test` covers the three import formats, normalization, chunking, Cast order, previews, navigation, character-name behavior, progress, credit estimates, cache identity/reuse, migration, resume, model selection, and Worker security/error mapping.
 
-The browser-layout suite needs a Playwright Chromium binary. Install it once with:
+The browser suite requires Playwright Chromium:
 
 ```bash
 npx playwright install chromium
@@ -93,14 +101,14 @@ npx playwright install chromium
 
 ## Known limitations
 
-- PDF parsing is heuristic. Unusual layouts, two-column scripts, protected PDFs, or broken font encodings may import imperfectly.
-- Scanned PDFs need OCR and are rejected with a clear message.
-- Premium generation costs ElevenLabs credits. Previewing a new premium voice also generates a short paid sample; cached previews are reused.
-- Media Session and lock-screen controls have uneven browser/OS support. Android Chrome is the primary background-playback target. iOS Safari may suspend or reclaim a browser tab, especially under memory pressure, and no static website can guarantee uninterrupted lock-screen playback on every device.
-- A network connection is required for new premium chunks. Cached chunks remain locally available in the same browser.
-- The local audio cache is capped at roughly 150 MB or 250 items and evicts the least recently used entries.
-- V2 has no user authentication. The origin allowlist reduces casual browser misuse but cannot protect a discovered endpoint like a login would. Maintain a restricted ElevenLabs key/credit limit for the personal beta.
+- PDF parsing is heuristic. Unusual layouts, protected PDFs, or broken font encodings may import imperfectly.
+- Scanned PDFs require OCR and are rejected with a clear explanation.
+- Premium previews and uncached playback consume credits. Cached identical audio is reused in the same browser.
+- Media Session and lock-screen behavior varies by browser and operating system. Android Chrome is the main target; no static site can guarantee uninterrupted background playback on every device.
+- A network connection is required for new Premium Audio. Cached chunks remain available in the same browser.
+- The local audio cache is capped at roughly 150 MB or 250 items and evicts least-recently-used entries.
+- Audio cache does not yet sync between devices because secure cross-device storage requires authenticated user ownership.
 
 ## License
 
-SpokenFrame project code is provided under [MIT](LICENSE). The bundled PDF.js distribution is covered by its included [Apache 2.0 license](vendor/pdfjs/LICENSE).
+SpokenFrame project code is provided under [MIT](LICENSE). Bundled PDF.js is covered by its included [Apache 2.0 license](vendor/pdfjs/LICENSE).
