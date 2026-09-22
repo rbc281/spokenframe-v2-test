@@ -11,7 +11,7 @@ const voices = [
   { name: "Local Three", lang: "en-GB", voiceURI: "local-three", default: false, localService: true }
 ];
 const spoken = [];
-const fakeSpeech = { speaking: false, getVoices: () => voices, addEventListener() {}, removeEventListener() {}, speak(utterance) { this.speaking = true; spoken.push(utterance); }, cancel() { this.speaking = false; } };
+const fakeSpeech = { speaking: false, cancelCount: 0, getVoices: () => voices, addEventListener() {}, removeEventListener() {}, speak(utterance) { this.speaking = true; spoken.push(utterance); }, cancel() { this.speaking = false; this.cancelCount += 1; } };
 class FakeUtterance { constructor(text) { this.text = text; } }
 
 for (const [name, value] of Object.entries({ window, document, navigator: window.navigator, localStorage: window.localStorage, indexedDB, crypto: webcrypto, DOMParser: window.DOMParser, SpeechSynthesisUtterance: FakeUtterance, File: window.File, Event: window.Event })) {
@@ -49,7 +49,7 @@ await test("imports FDX into the synchronized player", async () => {
 await test("device playback uses speech normalization and reads action", () => {
   const play = document.querySelector("#play-button"); play.click();
   check(spoken.at(-1)?.text === "EXTERIOR LOS ANGELES - NIGHT", "Scene heading was not normalized for speech");
-  play.click(); document.querySelector("#next-button").click();
+  play.click(); document.querySelector('[data-index="1"]').click();
   check(document.querySelector("#current-speaker").textContent === "Narrator", "Action is not narrated");
   check(document.querySelector("#now-playing-heading").textContent.startsWith("Traffic glows"), "Action did not follow scene");
 });
@@ -59,13 +59,45 @@ await test("first import gives every role the same predictable voice", () => {
   check(values.length === 3, "Cast list should include narrator and two characters");
   check(new Set(values).size === 1 && values[0] === "local-one", "Voices varied automatically");
 });
-await test("Auto Assign is opt-in and voice previews work", () => {
+await test("Auto Assign is opt-in and previews own playback", () => {
   document.querySelector("#auto-assign-button").click();
   const values = [...document.querySelectorAll(".voice-row select")].map((select) => select.value);
   check(new Set(values).size > 1, "Auto Assign did not vary voices");
+  const before = spoken.length; const cancelBefore = fakeSpeech.cancelCount;
   document.querySelector(".preview-voice").click();
-  check(spoken.at(-1)?.text.includes("blue hour"), "Preview did not speak");
+  check(spoken.length === before + 1 && spoken.at(-1)?.text.includes("voice sounds"), "Preview did not speak");
+  check(fakeSpeech.cancelCount > cancelBefore, "Preview did not stop prior playback");
+  spoken.at(-1).onend?.();
+  check(!document.querySelector("#play-button").classList.contains("is-playing"), "Screenplay resumed after preview");
   document.querySelector("#done-cast-button").click();
+  check(!fakeSpeech.speaking, "Closing Cast did not stop preview audio");
+});
+await test("Cast is narrator-first and ordered by dialogue quantity", () => {
+  document.querySelector("#cast-button").click();
+  const names = [...document.querySelectorAll(".voice-identity strong")].map((element) => element.textContent);
+  check(names.join("|") === "Narrator|EVAN|LENA PARK", `Unexpected Cast order: ${names.join("|")}`);
+  check(document.body.textContent.includes("Audio Quality") && document.body.textContent.includes("Premium Audio") && document.body.textContent.includes("Standard Audio"), "V3 audio terminology missing");
+  document.querySelector("#done-cast-button").click();
+});
+await test("character-name reading is optional and persists", () => {
+  document.querySelector("#cast-button").click();
+  const toggle = document.querySelector("#read-character-names"); check(!toggle.checked, "Character names should default off");
+  toggle.checked = true; toggle.dispatchEvent(new window.Event("change", { bubbles: true })); document.querySelector("#done-cast-button").click();
+  document.querySelector('[data-index="2"]').click(); document.querySelector("#play-button").click();
+  check(spoken.at(-1)?.text.startsWith("EVAN."), "Character name was not read when enabled");
+  document.querySelector("#play-button").click(); document.querySelector("#cast-button").click();
+  check(document.querySelector("#read-character-names").checked, "Character-name setting did not persist");
+  document.querySelector("#done-cast-button").click();
+});
+await test("scene and three-passage navigation use screenplay structure", () => {
+  document.querySelector("#next-scene-button").click();
+  check(document.querySelector("#now-playing-heading").textContent.includes("TRAFFIC OPERATIONS"), "Next scene failed");
+  document.querySelector("#previous-scene-button").click();
+  check(document.querySelector("#now-playing-heading").textContent.includes("LOS ANGELES"), "Previous scene failed");
+  document.querySelector("#forward-three-button").click();
+  check(Number(document.querySelector("#progress-slider").value) >= 2, "Forward 3 failed");
+  document.querySelector("#back-three-button").click();
+  check(Number(document.querySelector("#progress-slider").value) === 0, "Back 3 failed");
 });
 await test("speed, scenes, highlighting, and resume persist", async () => {
   const speed = document.querySelector("#speed-select"); speed.value = "1.5"; speed.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -74,6 +106,13 @@ await test("speed, scenes, highlighting, and resume persist", async () => {
   document.querySelector("#brand-button").click(); check(!document.querySelector("#resume-card").hidden, "Resume missing"); document.querySelector("#resume-button").click();
   check(document.querySelector("#speed-select").value === "1.5", "Speed did not persist");
   check(document.querySelector("#now-playing-heading").textContent.includes("TRAFFIC OPERATIONS"), "Position did not persist");
+  check(/^\d+% · /.test(document.querySelector("#progress-summary").textContent), "Friendly progress summary missing");
+  check(!document.querySelector("#progress-summary").textContent.includes("/"), "Internal unit count is visible");
+  document.querySelector("#cast-button").click();
+  const savedVoices = [...document.querySelectorAll(".voice-row select")].map((select) => select.value);
+  check(new Set(savedVoices).size > 1, "Voice assignments did not persist");
+  check(document.querySelector("#read-character-names").checked, "Character-name preference did not persist after resume");
+  document.querySelector("#done-cast-button").click();
 });
 await test("imports Fountain through the same player", async () => {
   await upload(fountain, "night-window.fountain", "#replace-file-input");

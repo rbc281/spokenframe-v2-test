@@ -7,7 +7,8 @@ const { parseFountain } = await import("../js/parsers/fountain-parser.js");
 const { classifyPdfLines, parsePdf } = await import("../js/parsers/pdf-parser.js");
 const { normalizeForSpeech } = await import("../js/speech-normalizer.js");
 const { buildAudioChunks } = await import("../js/audio-chunks.js");
-const { ElevenLabsProvider } = await import("../js/tts/elevenlabs-provider.js");
+const { ElevenLabsProvider, premiumErrorMessage } = await import("../js/tts/elevenlabs-provider.js");
+const { adjacentSceneUnit, estimatePremiumCredits, estimateRemainingSeconds, formatTimeRemaining, progressSummary, sortedCastCharacters, spokenTextForChunk } = await import("../js/playback-utils.js");
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -16,6 +17,14 @@ const equal = (actual, expected, message = "Values differ") => { if (JSON.string
 
 const fountainText = await fs.readFile(new URL("./fixtures/representative.fountain", import.meta.url), "utf8");
 const fountain = parseFountain(fountainText, "Fallback");
+
+test("V3 brand mark and favicon are present at static paths", async () => {
+  const index = await fs.readFile(new URL("../index.html", import.meta.url), "utf8");
+  const logo = await fs.readFile(new URL("../assets/logo.svg", import.meta.url), "utf8");
+  const favicon = await fs.readFile(new URL("../assets/favicon.svg", import.meta.url), "utf8");
+  check(index.includes('href="assets/favicon.svg"') && index.includes('src="assets/logo.svg"'), "Brand asset paths are missing");
+  check(logo.includes("#f4c842") && favicon.includes("#f4c842"), "Warm yellow brand accent is missing");
+});
 
 test("Fountain extracts title and forced scene headings", () => {
   equal(fountain.title, "NIGHT WINDOW");
@@ -94,6 +103,39 @@ test("long action is split below the Worker limit without losing its highlight m
   equal(chunks.map((chunk) => chunk.text).join(" "), text);
 });
 
+test("Cast sorts by dialogue-block count with appearance-order ties", () => {
+  const script = { characters: [{ id: "OPENING", name: "OPENING" }, { id: "LEAD", name: "LEAD" }, { id: "TIE", name: "TIE" }], units: [
+    { type: "dialogue", characterId: "OPENING" },
+    { type: "dialogue", characterId: "LEAD" }, { type: "dialogue", characterId: "LEAD" }, { type: "dialogue", characterId: "LEAD" },
+    { type: "dialogue", characterId: "TIE" }
+  ] };
+  equal(sortedCastCharacters(script).map((character) => character.id), ["LEAD", "OPENING", "TIE"]);
+});
+test("character names are spoken only when enabled", () => {
+  const chunk = { roleId: "EVAN", speaker: "EVAN", text: "I don’t think that’s what happened." };
+  equal(spokenTextForChunk(chunk), "I don’t think that’s what happened.");
+  equal(spokenTextForChunk(chunk, { readCharacterNames: true }), "EVAN. I don’t think that’s what happened.");
+});
+test("Flash credit estimate uses only final spoken text", () => {
+  const chunks = [{ roleId: "NARRATOR", speaker: "Narrator", text: "A door opens." }, { roleId: "EVAN", speaker: "EVAN", text: "Wait." }];
+  equal(estimatePremiumCredits(chunks, { model: "eleven_flash_v2_5" }), Math.ceil("A door opens.Wait.".length * 0.5));
+  check(estimatePremiumCredits(chunks, { model: "eleven_flash_v2_5", readCharacterNames: true }) > estimatePremiumCredits(chunks, { model: "eleven_flash_v2_5" }), "Names did not change estimated usage");
+});
+test("progress combines percentage and speed-aware time remaining", () => {
+  const chunks = [{ text: "One two three four five.", roleId: "NARRATOR" }, { text: "Six seven eight nine ten.", roleId: "NARRATOR" }];
+  const normal = estimateRemainingSeconds(chunks, { rate: 1 });
+  const fast = estimateRemainingSeconds(chunks, { rate: 2 });
+  check(Math.abs(fast * 2 - normal) < 0.01, "Speed did not update remaining time");
+  equal(progressSummary({ currentIndex: 1, unitCount: 5, remainingSeconds: 3720 }), "25% · 1 hr 2 min remaining");
+  equal(formatTimeRemaining(7200), "2 hr remaining");
+});
+test("scene navigation selects adjacent screenplay headings", () => {
+  const scenes = [{ unitIndex: 0 }, { unitIndex: 8 }, { unitIndex: 18 }];
+  equal(adjacentSceneUnit(scenes, 3, 1), 8);
+  equal(adjacentSceneUnit(scenes, 12, -1), 0);
+  equal(adjacentSceneUnit(scenes, 18, -1), 8);
+});
+
 test("premium provider sends only text and voice ID to Worker", async () => {
   let request;
   const provider = new ElevenLabsProvider({ workerUrl: "https://worker.example", fetchImpl: async (url, options) => { request = { url, options }; return new Response(new Blob(["audio"], { type: "audio/mpeg" }), { status: 200, headers: { "X-SpokenFrame-Model": "test-model" } }); } });
@@ -103,13 +145,21 @@ test("premium provider sends only text and voice ID to Worker", async () => {
   check(!request.options.body.includes("API"), "Secret-like data leaked to request body");
 });
 
+test("premium provider defaults to Flash v2.5 and maps public errors", () => {
+  const provider = new ElevenLabsProvider({ workerUrl: "https://worker.example", fetchImpl: async () => new Response() });
+  equal(provider.model, "eleven_flash_v2_5");
+  equal(premiumErrorMessage("quota"), "Premium audio credits are unavailable.");
+  equal(premiumErrorMessage("network"), "Premium audio couldn’t connect.");
+  equal(premiumErrorMessage("provider_auth"), "Premium audio isn’t configured correctly.");
+});
+
 test("premium provider calls native fetch with the browser global receiver", async () => {
   const originalFetch = globalThis.fetch;
   let receiver;
   globalThis.fetch = function () {
     receiver = this;
     return Promise.resolve(new Response(JSON.stringify({
-      model: "eleven_multilingual_v2",
+      model: "eleven_flash_v2_5",
       voices: [{ voice_id: "voice_12345678", name: "Test Voice", labels: { language: "en" } }]
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
   };

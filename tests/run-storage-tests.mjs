@@ -20,10 +20,12 @@ await new Promise((resolve, reject) => {
   request.onerror = () => reject(request.error);
 });
 
-const { audioCacheKey, getCachedAudio, loadLastScreenplay, putCachedAudio } = await import("../js/storage.js");
+const { audioCacheKey, getCachedAudio, getCachedAudioEntry, loadLastScreenplay, putCachedAudio, updateCachedAudioMetadata } = await import("../js/storage.js");
+const { AudioCache } = await import("../js/audio-cache.js");
 const restored = await loadLastScreenplay();
 if (restored.script.title !== "Legacy" || restored.preferences.rate !== 1.25 || restored.schemaVersion !== 2) throw new Error("V1 screenplay did not migrate safely");
 if (restored.preferences.provider !== "browser") throw new Error("Legacy voice provider was not preserved as browser speech");
+if (restored.preferences.readCharacterNames !== false) throw new Error("Character-name reading did not receive a safe default");
 console.log("✓ migrates V1 records without deleting screenplay or position");
 
 const identity = { provider: "elevenlabs", model: "model", voiceId: "voice", text: "Same passage", settings: {} };
@@ -32,4 +34,22 @@ if (firstKey !== secondKey) throw new Error("Cache identity is not deterministic
 const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/mpeg" });
 await putCachedAudio(firstKey, blob, { screenplayId: "v1-script" }); const restoredBlob = await getCachedAudio(firstKey);
 if (!restoredBlob || restoredBlob.size !== 3) throw new Error("Audio blob cache failed");
+await updateCachedAudioMetadata(firstKey, { duration: 4.2 });
+if ((await getCachedAudioEntry(firstKey)).metadata.duration !== 4.2) throw new Error("Cached duration metadata failed");
+const namedKey = await audioCacheKey({ ...identity, settings: { readCharacterNames: true, normalizationVersion: 2 } });
+if (namedKey === firstKey) throw new Error("Character-name setting did not change cache identity");
 console.log("✓ stores generated audio as deterministic IndexedDB blobs");
+
+const memory = new Map();
+const primary = {
+  async get(key) { return memory.get(key) || null; },
+  async put(key, value, metadata) { memory.set(key, { blob: value, metadata }); },
+  async delete(key) { memory.delete(key); },
+  async updateMetadata() {}
+};
+const cache = new AudioCache(primary); let generations = 0;
+const create = async () => { generations += 1; await new Promise((resolve) => setTimeout(resolve, 5)); return blob; };
+await Promise.all([cache.getOrCreate("shared", create), cache.getOrCreate("shared", create)]);
+await cache.getOrCreate("shared", create);
+if (generations !== 1) throw new Error("Cached or concurrent audio was generated more than once");
+console.log("✓ reuses cached audio and deduplicates concurrent generation");
