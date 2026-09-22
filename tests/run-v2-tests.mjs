@@ -103,6 +103,26 @@ test("premium provider sends only text and voice ID to Worker", async () => {
   check(!request.options.body.includes("API"), "Secret-like data leaked to request body");
 });
 
+test("premium provider calls native fetch with the browser global receiver", async () => {
+  const originalFetch = globalThis.fetch;
+  let receiver;
+  globalThis.fetch = function () {
+    receiver = this;
+    return Promise.resolve(new Response(JSON.stringify({
+      model: "eleven_multilingual_v2",
+      voices: [{ voice_id: "voice_12345678", name: "Test Voice", labels: { language: "en" } }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  };
+  try {
+    const provider = new ElevenLabsProvider({ workerUrl: "https://worker.example" });
+    const voices = await provider.getVoices();
+    check(receiver === globalThis, "Native fetch was called with an invalid receiver");
+    equal(voices.map((voice) => voice.name), ["Test Voice"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 let failures = 0;
 for (const item of tests) {
   try { await item.fn(); console.log(`✓ ${item.name}`); }
