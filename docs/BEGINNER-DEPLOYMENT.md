@@ -7,16 +7,16 @@ There are two parts:
 1. GitHub Pages hosts the visible SpokenFrame website.
 2. A Cloudflare Worker privately holds your ElevenLabs key and asks ElevenLabs for small audio passages.
 
-Use a temporary test repository first. Your current live V1 stays untouched until V2 passes on your phone.
+Use a temporary test repository first. Your current live version stays untouched until V3 passes on your phone.
 
-## Part 1 — Put V2 in a temporary GitHub repository
+## Part 1 — Put V3 in a temporary GitHub repository
 
-### 1. Download and extract the V2 ZIP
+### 1. Download and extract the V3 ZIP
 
-1. Download the `spokenframe-v2.zip` file supplied with this release.
+1. Download the `spokenframe-v3.zip` file supplied with this release.
 2. Open your computer's Downloads folder.
 3. Double-click the ZIP to extract it.
-4. Open the extracted `spokenframe-v2` folder.
+4. Open the extracted `spokenframe-v3` folder.
 5. Confirm that `index.html`, `styles.css`, `README.md`, and folders such as `js`, `worker`, `vendor`, and `assets` are visible immediately.
 
 Important: later you will upload the **contents inside** this folder, not the outer folder and not the ZIP file.
@@ -34,14 +34,14 @@ Important: later you will upload the **contents inside** this folder, not the ou
 ### 3. Upload the complete folder structure
 
 1. On the empty repository page, click **uploading an existing file**.
-2. Return to the extracted `spokenframe-v2` folder on your computer.
+2. Return to the extracted `spokenframe-v3` folder on your computer.
 3. Select **everything inside it**: the files and all folders.
 4. Drag that entire selection onto GitHub's upload area.
 5. Wait until GitHub finishes listing the files. You should see paths beginning with `assets/`, `js/`, `worker/`, and `vendor/`.
-6. In the commit message box, enter: `Add SpokenFrame V2 test build`
+6. In the commit message box, enter: `Add SpokenFrame V3 test build`
 7. Click **Commit changes**.
 
-If you only see a single ZIP file or a top-level `spokenframe-v2` folder in the repository, stop. Delete that incorrect upload and repeat with the contents inside the extracted folder. `index.html` must be at the repository's top level.
+If you only see a single ZIP file or a top-level `spokenframe-v3` folder in the repository, stop. Delete that incorrect upload and repeat with the contents inside the extracted folder. `index.html` must be at the repository's top level.
 
 ### 4. Put your GitHub username in the Worker allowlist
 
@@ -75,7 +75,7 @@ This value is public and safe. Do not put the ElevenLabs key in this file.
 
 8. Open that URL. You should see **SpokenFrame** and **Your Screenplay. Read Aloud.**
 
-At this stage device voices work, but Premium AI will remain disabled until Parts 2 and 3 are complete.
+At this stage Standard Audio works, but Premium Audio will remain disabled until Parts 2 and 3 are complete.
 
 ## Part 2 — Deploy the secure Cloudflare Worker
 
@@ -152,11 +152,11 @@ Keep your restricted ElevenLabs credit/usage limit enabled. The personal beta ha
 
 1. Import a short FDX or Fountain screenplay.
 2. Click **Cast**.
-3. Confirm **Playback voice source** shows **Premium AI** and the voice lists contain ElevenLabs voices.
+3. Confirm **Audio Quality** lets you select **Premium Audio** and the Cast list contains premium voices.
 4. Close Cast and press Play.
 5. The Play button should briefly show a preparation spinner, then generated audio should begin.
 
-If Premium AI is disabled:
+If Premium Audio is disabled:
 
 - Check that `js/config.js` contains the Worker URL, not the ElevenLabs key.
 - Check Cloudflare **Variables and Secrets** for the exact secret name `ELEVENLABS_API_KEY`.
@@ -182,17 +182,17 @@ Do not replace V1 until FDX import, premium playback, resume, Cast persistence, 
 
 Expected result: `v1-backup` preserves the exact currently-live V1 files.
 
-### 11. Upload V2 over `main`
+### 11. Upload V3 over `main`
 
 1. Confirm the branch button says `main`.
 2. Click **Add file** → **Upload files**.
-3. From your extracted V2 folder, select and drag **all contents** into GitHub.
+3. From your extracted V3 folder, select and drag **all contents** into GitHub.
 4. Wait until the folders finish uploading.
-5. Enter the commit message: `Deploy SpokenFrame V2`
+5. Enter the commit message: `Deploy SpokenFrame V3`
 6. Click **Commit changes**.
 7. Open `worker/wrangler.toml` on `main` and confirm your GitHub username is present.
 8. Open `js/config.js` on `main`, click the pencil, and paste the same public Cloudflare Worker URL between the quotes.
-9. Commit with: `Connect SpokenFrame V2 to Worker`
+9. Commit with: `Connect SpokenFrame V3 to Worker`
 
 No secret is being copied: only the public Worker address goes in `config.js`.
 
@@ -214,18 +214,18 @@ This is optional on launch day; the deployed Worker continues working. To keep f
 4. Connect your production GitHub repository.
 5. Use `main` as the production branch and `worker` as the root directory.
 6. Keep build command `npm install` and deploy command `npx wrangler deploy`.
-7. Deploy and verify Premium AI again.
+7. Deploy and verify Premium Audio again.
 
 The existing Cloudflare secret remains attached to the Worker. Never move it into GitHub.
 
-## Roll back if V2 has a problem
+## Roll back if V3 has a problem
 
 1. Open the production repository → **Settings** → **Pages**.
 2. Change the deployment branch from `main` to `v1-backup` and keep `/ (root)`.
 3. Click **Save**.
 4. Wait for Pages to redeploy, then force-refresh your site.
 
-This restores V1 without deleting the V2 work. To return to V2 later, select `main` again.
+This restores the previous version without deleting the V3 work. To return to V3 later, select `main` again.
 
 ## Short final live-site checklist
 
