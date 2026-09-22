@@ -6,7 +6,7 @@ workers_dev = true
 [vars]
 # Replace these examples before deployment. Comma-separate origins if needed.
 ALLOWED_ORIGINS = "http://localhost:8080,https://rbc281.github.io"
-ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
+ELEVENLABS_MODEL_ID = "eleven_flash_v2_5"
 
 # Never put ELEVENLABS_API_KEY in this file. Add it with `wrangler secret put`
 # or in Cloudflare: Workers & Pages → spokenframe-tts → Settings → Variables and Secrets.
