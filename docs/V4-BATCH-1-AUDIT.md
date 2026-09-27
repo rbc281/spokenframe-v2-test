@@ -196,3 +196,5 @@ Existing V3 records will be migrated safely:
 6. Never clear the V3 database automatically; remove local copies only through a future explicit user action.
 
 Until Batch 3, another signed-in device may see library metadata but cannot truthfully play a screenplay whose private content has not yet been synchronized.
+
+The credential-independent account service is also prepared behind an injected client boundary. It supports session restoration, signup, sign-in, email recovery, password updates, sign-out, and auth-state events without storing tokens itself. Provider errors are mapped to short customer-safe messages. The account library repository requires an authenticated session before every operation and submits only owner-scoped metadata, playback state, and settings. These modules remain disconnected from the live application until the Supabase project URL and public publishable key are available.
