@@ -63,6 +63,7 @@ index.html                  SpokenFrame interface
 styles.css                 Responsive V3 visual system
 assets/                    Compact app mark and favicon
 js/app.js                  Playback, Cast, previews, Media Session, persistence
+js/account/                V4 account-library mapping boundary (not yet connected)
 js/playback-utils.js       Cast sorting, speech text, credits, progress, navigation
 js/audio-cache.js          Local cache interface and future remote-cache boundary
 js/parsers/                Format adapters and normalized screenplay model
@@ -74,6 +75,7 @@ js/storage.js              Migration, screenplay state, audio blob cache
 js/config.js               Public Worker URL only — never a secret
 vendor/pdfjs/              Pinned local PDF.js distribution
 worker/                     Cloudflare Worker proxy and tests/config
+supabase/migrations/        Versioned V4 account/database migrations
 tests/                      Parser, player, cache, migration, UI, and Worker tests
 docs/                       Deployment, architecture, and phone QA
 ```
