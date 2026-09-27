@@ -4,7 +4,7 @@
 
 SpokenFrame is an audiobook-style screenplay listener: import a screenplay, press Play, and follow the synchronized text while it is read aloud. It supports Final Draft (`.fdx`), text-based PDF, and Fountain.
 
-V4 Batch 2 adds optional free accounts and an owner-scoped saved library without changing the proven V3 screenplay player.
+V4 Batch 3 adds private cross-device screenplay and premium-audio storage without changing the proven V3 screenplay player.
 
 ## Start here
 
@@ -12,14 +12,15 @@ V4 Batch 2 adds optional free accounts and an owner-scoped saved library without
 - For the system design, security boundary, caching, and developer workflow, read [Architecture](docs/ARCHITECTURE.md).
 - For the committed V4 public-beta plan and Android lock-screen audit, read [V4 Batch 1 Audit](docs/V4-BATCH-1-AUDIT.md).
 - For the account, library, privacy boundary, and email release gate, read [V4 Batch 2 Accounts](docs/V4-BATCH-2-ACCOUNTS.md).
+- For private screenplay storage, cross-device audio reuse, and R2 security, read [V4 Batch 3 Private Storage](docs/V4-BATCH-3-PRIVATE-STORAGE.md).
 - To recreate the account backend safely, follow [Supabase Setup](docs/V4-SUPABASE-SETUP.md).
 - After deployment, use the [Real-Device QA Checklist](docs/REAL-DEVICE-QA.md).
 
 ## V4 public-beta checkpoint
 
-Batch 1's architecture audit and Batch 2's account/library foundation are complete. Guest playback remains immediate and free. Signed-in users can save screenplay metadata, position, speed, and preferences to a private owner-scoped library.
+Batch 1's architecture audit, Batch 2's account/library foundation, and Batch 3's private storage layer are complete. Guest playback remains immediate and free. Signed-in users can save screenplay content, position, speed, preferences, and generated premium passages to an owner-scoped private library.
 
-Raw screenplay content and premium audio still remain local. Secure private R2 storage is intentionally reserved for Batch 3, and payment/entitlement enforcement is reserved for Batch 4. Premium must remain a personal beta until the Worker verifies both an authenticated owner and a paid screenplay entitlement.
+The original uploaded file is not retained in the cloud. SpokenFrame stores the normalized screenplay structure needed to reconstruct the reader and stores generated audio under private user/screenplay paths. Payment/entitlement enforcement is reserved for Batch 4. Premium must remain a personal beta until the Worker verifies a paid screenplay entitlement before every generation request.
 
 ## What V3 does
 
@@ -42,16 +43,18 @@ Raw screenplay content and premium audio still remain local. Secure private R2 s
 - Migrates existing V1/V2 screenplay records without deleting them
 - Offers optional email/password accounts while preserving account-free guest playback
 - Saves signed-in library metadata, playback position, speed, and preferences with owner-only database policies
+- Restores a signed-in screenplay on another device from a private normalized R2 copy
+- Reuses identical premium passages across the owner's devices without a second TTS request
 
 ## Privacy and security
 
-The screenplay is parsed in the browser. SpokenFrame does not send the whole file to the Worker. Premium playback sends only the small spoken passage currently needed and its selected voice ID.
+The screenplay is parsed in the browser. Guest files remain local. For signed-in libraries, SpokenFrame sends the normalized screenplay structure—not the original uploaded file—to private R2 storage so another authenticated device can restore it. Premium generation sends only the small spoken passage currently needed and its selected voice ID.
 
 The repository contains no ElevenLabs key. The key belongs only in the Cloudflare secret named `ELEVENLABS_API_KEY`.
 
-The Worker validates origins, methods, content types, request size, text length, and voice-ID shape. It does not store screenplay text or generated audio. CORS is not authentication, so maintain a restricted ElevenLabs key/credit limit while this remains a personal beta.
+The Worker validates origins, authenticated Supabase sessions, screenplay ownership, methods, content types, request sizes, deterministic audio identities, text length, and voice-ID shape. Private screenplay and generated-audio objects use owner-scoped R2 paths and are never exposed through public bucket URLs. CORS remains defense-in-depth, not authentication.
 
-V4 Batch 2 provides authenticated ownership for account-library metadata, but intentionally does **not** upload raw screenplay content or audio yet. Secure cross-device screenplay/audio storage remains a private R2 task for Batch 3; no public shared cache is used.
+The legacy personal-beta TTS route remains available until Batch 4 adds payment entitlements. Do not invite public Premium users before Batch 4: it will require an authenticated owner, paid screenplay entitlement, and server-side generation allowance before every uncached TTS request.
 
 ## Supported files
 
@@ -71,7 +74,7 @@ assets/                    Compact app mark and favicon
 js/app.js                  Playback, Cast, previews, Media Session, persistence
 js/account/                Connected V4 session, Supabase client, and private library adapters
 js/playback-utils.js       Cast sorting, speech text, credits, progress, navigation
-js/audio-cache.js          Local cache interface and future remote-cache boundary
+js/audio-cache.js          Fast local IndexedDB cache and in-flight deduplication
 js/parsers/                Format adapters and normalized screenplay model
 js/tts/                    Standard and premium provider adapters
 js/audio-chunks.js         Cost-aware chunking and unit mapping
@@ -105,7 +108,7 @@ npm test
 npm run test:browser
 ```
 
-`npm test` covers the three import formats, normalization, chunking, Cast order, previews, navigation, character-name behavior, progress, cache identity/reuse, migration, account mapping/session behavior, public-client configuration, model selection, and Worker security/error mapping.
+`npm test` covers the three import formats, normalization, chunking, Cast order, previews, navigation, character-name behavior, progress, local/cloud cache identity and reuse, migration, account mapping/session behavior, ownership isolation, public-client configuration, model selection, and Worker security/error mapping.
 
 The browser suite requires Playwright Chromium:
 
@@ -117,12 +120,12 @@ npx playwright install chromium
 
 - PDF parsing is heuristic. Unusual layouts, protected PDFs, or broken font encodings may import imperfectly.
 - Scanned PDFs require OCR and are rejected with a clear explanation.
-- Premium previews and uncached playback consume credits. Cached identical audio is reused in the same browser.
+- Premium previews and uncached playback consume provider usage. Signed-in playback reuses identical audio from private R2 across devices; guest/preview audio remains device-local.
 - Media Session and lock-screen behavior varies by browser and operating system. Android Chrome is the main target; no static site can guarantee uninterrupted background playback on every device.
 - A network connection is required for new Premium Audio. Cached chunks remain available in the same browser.
 - The local audio cache is capped at roughly 150 MB or 250 items and evicts least-recently-used entries.
-- Audio cache does not yet sync between devices because it still requires private R2 storage plus Worker-side ownership validation.
-- Account library metadata syncs across devices, but the screenplay must be re-uploaded on a second device until private Batch 3 storage is added.
+- Cloud restoration requires a network connection and a valid signed-in session. Local IndexedDB remains the fast first-level cache.
+- Payment and Premium entitlement enforcement arrive in Batch 4. Until then, Premium remains a controlled personal beta rather than a public service.
 - Supabase's built-in email sender is restricted to project-team testing. Custom SMTP is required before inviting public beta users.
 
 ## License

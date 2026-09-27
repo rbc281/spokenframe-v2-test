@@ -100,6 +100,16 @@ export class AccountSessionService {
     }
   }
 
+  async accessToken() {
+    try {
+      const { data, error } = await this.client.auth.getSession();
+      if (error) throw error;
+      const token = String(data?.session?.access_token || "");
+      if (!token) throw new AccountError("sign_in_required", "Sign in to use private cloud storage.");
+      return token;
+    } catch (error) { throw accountError(error); }
+  }
+
   async signUp(email, password) {
     try {
       const options = this.redirectUrl ? { emailRedirectTo: this.redirectUrl } : undefined;

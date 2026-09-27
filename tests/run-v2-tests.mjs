@@ -145,6 +145,29 @@ test("premium provider sends only text and voice ID to Worker", async () => {
   check(!request.options.body.includes("API"), "Secret-like data leaked to request body");
 });
 
+test("signed-in premium playback uses the owner-scoped cloud cache route", async () => {
+  let request;
+  const cacheKey = "a".repeat(64);
+  const provider = new ElevenLabsProvider({
+    workerUrl: "https://worker.example",
+    tokenProvider: async () => "short-lived-session-token",
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return new Response(new Blob(["cached-audio"], { type: "audio/mpeg" }), { status: 200, headers: { "X-SpokenFrame-Cache": "HIT" } });
+    }
+  });
+  await provider.generateSpeech({
+    text: "A short passage.",
+    voiceId: "voice_12345678",
+    screenplayId: "11111111-1111-4111-8111-111111111111",
+    cacheKey,
+    cacheSettings: { format: "mp3_44100_128", readCharacterNames: false, normalizationVersion: 2 }
+  });
+  check(request.url.endsWith(`/v1/screenplays/11111111-1111-4111-8111-111111111111/audio/${cacheKey}`), "Private cache route was not used");
+  equal(request.options.headers.Authorization, "Bearer short-lived-session-token");
+  equal(JSON.parse(request.options.body).cacheSettings, { format: "mp3_44100_128", readCharacterNames: false, normalizationVersion: 2 });
+});
+
 test("premium provider defaults to Flash v2.5 and maps public errors", () => {
   const provider = new ElevenLabsProvider({ workerUrl: "https://worker.example", fetchImpl: async () => new Response() });
   equal(provider.model, "eleven_flash_v2_5");

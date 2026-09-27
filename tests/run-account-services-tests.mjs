@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { DOMParser } from "@xmldom/xmldom";
 import { AccountError, AccountSessionService } from "../js/account/account-session.js";
+import { PrivateCloudStorage, PrivateStorageError } from "../js/account/private-cloud-storage.js";
 import { LibraryError, SupabaseLibraryRepository } from "../js/account/library-repository.js";
 import { parseFdx } from "../js/fdx-parser.js";
 
@@ -9,17 +10,18 @@ globalThis.DOMParser = DOMParser;
 
 function fakeAuthClient() {
   let callback = null;
+  let session = null;
   const calls = [];
   const auth = {
-    async getSession() { calls.push(["getSession"]); return { data: { session: null }, error: null }; },
+    async getSession() { calls.push(["getSession"]); return { data: { session }, error: null }; },
     onAuthStateChange(listener) { callback = listener; return { data: { subscription: { unsubscribe() { calls.push(["unsubscribe"]); } } } }; },
     async signUp(payload) { calls.push(["signUp", payload]); return { data: { user: { id: "user-1", email: payload.email }, session: null }, error: null }; },
-    async signInWithPassword(payload) { calls.push(["signIn", payload]); return { data: { session: { user: { id: "user-1", email: payload.email } } }, error: null }; },
+    async signInWithPassword(payload) { calls.push(["signIn", payload]); session = { access_token: "signed-jwt", user: { id: "user-1", email: payload.email } }; return { data: { session }, error: null }; },
     async resetPasswordForEmail(email, options) { calls.push(["reset", email, options]); return { error: null }; },
     async updateUser(payload) { calls.push(["updateUser", payload]); return { error: null }; },
-    async signOut() { calls.push(["signOut"]); return { error: null }; }
+    async signOut() { calls.push(["signOut"]); session = null; return { error: null }; }
   };
-  return { auth, calls, emit(event, session) { callback?.(event, session); } };
+  return { auth, calls, emit(event, nextSession) { session = nextSession; callback?.(event, nextSession); } };
 }
 
 const fake = fakeAuthClient();
@@ -32,12 +34,14 @@ assert.equal((await sessions.initialize()).status, "guest");
 assert.deepEqual(await sessions.signUp(" Roger@Example.com ", "long-enough-password"), { user: { id: "user-1", email: "roger@example.com" }, confirmationRequired: true });
 assert.equal(fake.calls.find(([name]) => name === "signUp")[1].options.emailRedirectTo, "https://example.test/account");
 assert.equal((await sessions.signIn("Roger@example.com", "long-enough-password")).status, "authenticated");
+assert.equal(await sessions.accessToken(), "signed-jwt");
 fake.emit("SIGNED_IN", { user: { id: "user-1", email: "roger@example.com" } });
 fake.emit("PASSWORD_RECOVERY", { user: { id: "user-1", email: "roger@example.com" } });
 await sessions.requestPasswordReset("roger@example.com");
 await sessions.updatePassword("another-long-password");
 await sessions.signOut();
 assert.equal(sessions.snapshot().status, "guest");
+await assert.rejects(() => sessions.accessToken(), (error) => error instanceof AccountError && error.code === "sign_in_required");
 unsubscribe(); unsubscribeEvents(); sessions.destroy();
 assert(observed.includes("authenticated"));
 assert(authEvents.includes("PASSWORD_RECOVERY"));
@@ -106,3 +110,30 @@ console.log("✓ library saves owner-scoped metadata, playback, and settings wit
 const guestLibrary = new SupabaseLibraryRepository(database, { snapshot: () => ({ status: "guest", user: null }) });
 await assert.rejects(() => guestLibrary.listScreenplays(), (error) => error instanceof LibraryError && error.code === "sign_in_required");
 console.log("✓ guest sessions cannot read or write the account library");
+
+const cloudRequests = [];
+const cloud = new PrivateCloudStorage({
+  workerUrl: "https://worker.example/",
+  tokenProvider: async () => "signed-jwt",
+  fetchImpl: async (url, options = {}) => {
+    cloudRequests.push({ url, options });
+    if (options.method === "POST") return new Response(JSON.stringify({ saved: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ clientFingerprint: record.id, screenplay: record.script }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+});
+assert.deepEqual(await cloud.saveScreenplay("11111111-1111-4111-8111-111111111111", record), { saved: true });
+assert.equal((await cloud.loadScreenplay("11111111-1111-4111-8111-111111111111")).clientFingerprint, record.id);
+assert(cloudRequests.every(({ options }) => options.headers.Authorization === "Bearer signed-jwt"));
+assert(cloudRequests[0].url.includes("/v1/screenplays/11111111-1111-4111-8111-111111111111/content"));
+console.log("✓ private screenplay storage sends authenticated owner-scoped requests");
+
+const expiredCloud = new PrivateCloudStorage({
+  workerUrl: "https://worker.example",
+  tokenProvider: async () => "expired",
+  fetchImpl: async () => new Response(JSON.stringify({ code: "invalid_session" }), { status: 401, headers: { "Content-Type": "application/json" } })
+});
+await assert.rejects(
+  () => expiredCloud.loadScreenplay("11111111-1111-4111-8111-111111111111"),
+  (error) => error instanceof PrivateStorageError && error.code === "invalid_session" && !/jwt|supabase/i.test(error.message)
+);
+console.log("✓ private storage exposes safe session errors without backend details");

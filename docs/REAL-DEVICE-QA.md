@@ -1,6 +1,14 @@
 # SpokenFrame real-device QA
 
-Run this on the V3 GitHub Pages URL before considering deployment complete.
+Run this on the V4 beta GitHub Pages URL before considering deployment complete.
+
+## Account and private cross-device storage
+
+- [ ] Sign in, upload a screenplay, return Home, and confirm it appears in the library.
+- [ ] On a second browser/device, sign in with the same account and select that library entry without re-uploading the file.
+- [ ] Confirm the screenplay opens with the saved position, speed, Audio Quality, Read Character Names state, and Cast assignments.
+- [ ] Generate one short Premium Audio passage on the first device, then play the identical passage on the second device and confirm it starts from the private cache without a second provider generation.
+- [ ] Sign out and confirm the private library disappears while guest import remains available.
 
 ## Import and reading
 
@@ -51,4 +59,4 @@ Run this on the V3 GitHub Pages URL before considering deployment complete.
 - [ ] Tab through the desktop interface with a keyboard; focus is always visible.
 - [ ] If your device has Reduce Motion enabled, scrolling/transitions are restrained.
 
-Do not consider V3 fully verified until the import, premium audio, resume, and Android lock-screen rows pass on your actual phone.
+Do not consider V4 ready for public beta until account storage, import, Premium Audio, resume, Android lock-screen, payment entitlement, and public-email rows pass. Payment entitlement and public email remain later release gates after Batch 3.

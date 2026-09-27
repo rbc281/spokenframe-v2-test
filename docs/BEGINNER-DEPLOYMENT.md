@@ -129,6 +129,23 @@ Never paste this key into:
 
 Keep your restricted ElevenLabs credit/usage limit enabled. The personal beta has no user login, and origin rules are not a substitute for authentication.
 
+### 7A. Create the private R2 bucket
+
+This stores signed-in screenplay copies and generated audio privately so another device can reuse them.
+
+1. In Cloudflare's left menu, open **Storage & databases** → **R2 Object Storage**.
+2. If R2 is not active, select **Add R2 subscription to my account**. Cloudflare shows `$0.00` due now and charges only for usage above its included monthly limits.
+3. Select **Create bucket**.
+4. Enter exactly: `spokenframe-private-media`
+5. Leave the location automatic/default.
+6. Choose the **Standard** storage class.
+7. Select **Create bucket**.
+8. Confirm the bucket page says **Public Access: Disabled**.
+
+Do not add a public development URL, custom domain, API token, or files. `worker/wrangler.toml` connects this private bucket to the Worker as `PRIVATE_MEDIA` during deployment.
+
+After Cloudflare deploys the Worker commit, open its **Settings** → **Bindings** and confirm an R2 binding named `PRIVATE_MEDIA` points to `spokenframe-private-media`. The bucket itself must remain private.
+
 ## Part 3 — Connect the website to the Worker
 
 ### 8. Add the public Worker URL to SpokenFrame

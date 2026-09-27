@@ -1,6 +1,6 @@
 {
   "name": "spokenframe",
-  "version": "4.0.0-beta.2",
+  "version": "4.0.0-beta.3",
   "private": true,
   "type": "module",
   "description": "A synchronized screenplay listening experience for Final Draft, PDF, and Fountain.",

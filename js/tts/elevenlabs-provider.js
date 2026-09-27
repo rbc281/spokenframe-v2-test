@@ -4,6 +4,8 @@ export class PremiumTtsError extends Error {
 
 export function premiumErrorMessage(code) {
   if (["quota", "rate_limit"].includes(code)) return "Premium audio credits are unavailable.";
+  if (["auth_required", "invalid_session"].includes(code)) return "Sign in again to use Premium Audio.";
+  if (["screenplay_not_found", "cache_identity"].includes(code)) return "This screenplay isn’t ready for Premium Audio yet.";
   if (code === "network") return "Premium audio couldn’t connect.";
   if (["provider_unavailable", "provider_error", "worker_error", "timeout", "unavailable"].includes(code)) return "Premium audio is temporarily unavailable.";
   if (["not_configured", "provider_auth", "origin_denied"].includes(code)) return "Premium audio isn’t configured correctly.";
@@ -12,11 +14,12 @@ export function premiumErrorMessage(code) {
 }
 
 export class ElevenLabsProvider {
-  constructor({ workerUrl, fetchImpl } = {}) {
+  constructor({ workerUrl, tokenProvider, fetchImpl } = {}) {
     this.id = "elevenlabs";
     this.name = "Premium Audio";
     this.kind = "audio";
     this.workerUrl = String(workerUrl || "").replace(/\/$/, "");
+    this.tokenProvider = tokenProvider;
     // Native browser fetch is receiver-sensitive. Wrapping the call keeps it
     // bound to the browser global instead of invoking it as a provider method.
     this.fetch = fetchImpl
@@ -45,14 +48,28 @@ export class ElevenLabsProvider {
     this.model = payload.model || this.model;
     return (payload.voices || []).map((voice) => ({ id: voice.voice_id, name: voice.name, language: voice.labels?.language || "Multilingual", provider: this.id }));
   }
-  async generateSpeech({ text, voiceId, signal }) {
+  async generateSpeech({ text, voiceId, signal, screenplayId = "", cacheKey = "", cacheSettings = {} }) {
     const controller = new AbortController();
     let timedOut = false;
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 45000);
     try {
-      const response = await this.request("/v1/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voiceId }), signal: controller.signal });
+      const usePrivateCache = Boolean(screenplayId && cacheKey && typeof this.tokenProvider === "function");
+      let token = "";
+      if (usePrivateCache) {
+        try { token = await this.tokenProvider(); }
+        catch { throw new PremiumTtsError("auth_required", premiumErrorMessage("auth_required"), 401); }
+      }
+      const path = usePrivateCache
+        ? `/v1/screenplays/${encodeURIComponent(screenplayId)}/audio/${encodeURIComponent(cacheKey)}`
+        : "/v1/tts";
+      const response = await this.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ text, voiceId, ...(usePrivateCache ? { cacheSettings } : {}) }),
+        signal: controller.signal
+      });
       this.model = response.headers.get("X-SpokenFrame-Model") || this.model;
       return response.blob();
     } catch (error) {

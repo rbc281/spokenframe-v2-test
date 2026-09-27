@@ -4,6 +4,7 @@ import { AudioPlayer } from "./audio-player.js";
 import { AccountSessionService } from "./account/account-session.js";
 import { SupabaseLibraryRepository } from "./account/library-repository.js";
 import { applyCloudPreferences } from "./account/library-model.js";
+import { PrivateCloudStorage } from "./account/private-cloud-storage.js";
 import { createSpokenFrameSupabaseClient } from "./account/supabase-client.js";
 import { SPOKENFRAME_CONFIG } from "./config.js";
 import { parseScreenplay, ScreenplayParseError, supportedFile } from "./parsers/parser-registry.js";
@@ -38,23 +39,31 @@ const elements = {
   fallbackModal: $("#fallback-modal"), fallbackMessage: $("#fallback-message"), fallbackDevice: $("#fallback-device"), fallbackRetry: $("#fallback-retry")
 };
 
+const supabaseClient = createSpokenFrameSupabaseClient(SPOKENFRAME_CONFIG);
+const accountSession = supabaseClient ? new AccountSessionService(supabaseClient, { redirectUrl: SPOKENFRAME_CONFIG.accountRedirectUrl }) : null;
+const accountLibrary = accountSession ? new SupabaseLibraryRepository(supabaseClient, accountSession) : null;
+const privateCloudStorage = accountSession ? new PrivateCloudStorage({
+  workerUrl: SPOKENFRAME_CONFIG.workerUrl,
+  tokenProvider: () => accountSession.accessToken()
+}) : null;
 const browserProvider = new BrowserTtsProvider();
-const premiumProvider = new ElevenLabsProvider({ workerUrl: SPOKENFRAME_CONFIG.workerUrl });
+const premiumProvider = new ElevenLabsProvider({
+  workerUrl: SPOKENFRAME_CONFIG.workerUrl,
+  tokenProvider: accountSession ? () => accountSession.accessToken() : null
+});
 const canUseAudio = typeof globalThis.Audio === "function" || typeof window.Audio === "function";
 const AudioConstructor = globalThis.Audio || window.Audio;
 const audioPlayer = canUseAudio ? new AudioPlayer(new AudioConstructor()) : null;
 const previewPlayer = canUseAudio ? new AudioPlayer(new AudioConstructor()) : null;
 const audioCache = new AudioCache();
-const supabaseClient = createSpokenFrameSupabaseClient(SPOKENFRAME_CONFIG);
-const accountSession = supabaseClient ? new AccountSessionService(supabaseClient, { redirectUrl: SPOKENFRAME_CONFIG.accountRedirectUrl }) : null;
-const accountLibrary = accountSession ? new SupabaseLibraryRepository(supabaseClient, accountSession) : null;
 const state = {
   record: null, chunks: [], chunkIndex: 0, index: 0, isPlaying: false, isBuffering: false, rate: 1, providerId: "browser",
   readCharacterNames: false, voices: { browser: [], elevenlabs: [] }, premiumReady: false, voiceAssignments: {}, chunkPosition: 0,
   controllers: new Map(), chunkDurations: new Map(), saveTimer: null, lastFocused: null, pendingRecord: null,
   playbackToken: 0, previewToken: 0, previewController: null, previewButton: null,
   accountStatus: accountSession ? "loading" : "unavailable", accountUser: null, accountMode: "signin", accountLibrary: [], accountRequestBusy: false,
-  cloudSaveTimer: null, cloudSaveSignature: "", cloudSaveRunning: false, cloudSavePending: false
+  cloudSaveTimer: null, cloudSaveSignature: "", cloudSaveRunning: false, cloudSavePending: false,
+  cloudContentReady: new Set()
 };
 
 function showToast(message, duration = 4200) {
@@ -204,18 +213,38 @@ async function hydrateRecordFromAccount(record) {
 
 async function openLibraryEntry(entry) {
   try {
-    const local = await loadScreenplay(entry.client_fingerprint);
+    let local = await loadScreenplay(entry.client_fingerprint);
     if (!local) {
-      showToast("Re-upload this screenplay to listen on this device. Cross-device file sync arrives in the next update.", 6500);
-      elements.fileInput.click();
-      return;
+      if (!privateCloudStorage) throw new Error("Private storage is unavailable.");
+      showToast("Opening your private screenplay copy…", 12000);
+      const stored = await privateCloudStorage.loadScreenplay(entry.id);
+      if (stored.clientFingerprint !== entry.client_fingerprint || !stored.screenplay?.units?.length) {
+        throw new Error("Private screenplay data did not match the library record.");
+      }
+      local = await saveScreenplay({
+        id: stored.clientFingerprint,
+        filename: `${entry.title || "Screenplay"}.${entry.source_format || "fdx"}`,
+        script: stored.screenplay,
+        preferences: defaultPreferences(),
+        accountLinks: { [state.accountUser.id]: entry.id },
+        createdAt: Date.now(),
+        schemaVersion: 2
+      });
+      state.cloudContentReady.add(entry.id);
     }
     local.accountLinks = { ...(local.accountLinks || {}), [state.accountUser.id]: entry.id };
     await openRecord(await hydrateRecordFromAccount(local));
   } catch (error) {
     console.warn("Library screenplay could not be opened:", error);
-    showToast("That screenplay isn’t stored on this device. Re-upload it to continue.");
+    showToast(error?.message || "That screenplay couldn’t be opened from your private library.", 6500);
   }
+}
+
+async function syncPrivateScreenplay(record, screenplayId) {
+  if (!privateCloudStorage || !screenplayId || state.cloudContentReady.has(screenplayId)) return false;
+  await privateCloudStorage.saveScreenplay(screenplayId, record);
+  state.cloudContentReady.add(screenplayId);
+  return true;
 }
 
 async function syncCurrentRecord({ includeMetadata = false, refreshLibrary = false } = {}) {
@@ -239,6 +268,11 @@ async function syncCurrentRecord({ includeMetadata = false, refreshLibrary = fal
     }
     record.accountLinks = { ...(record.accountLinks || {}), [ownerId]: id };
     if (state.record?.id === record.id) state.record = await saveScreenplay(record);
+    try { await syncPrivateScreenplay(record, id); }
+    catch (error) {
+      console.warn("Private screenplay copy could not be updated:", { code: error?.code, message: error?.message });
+      if (includeMetadata) showToast("Your listening position was saved, but the private screenplay copy couldn’t sync yet.", 6500);
+    }
     state.cloudSaveSignature = JSON.stringify({ id: record.id, ownerId, screenplayId: id, preferences: currentPreferences() });
     if (refreshLibrary || !screenplayId) await loadAccountLibrary({ quiet: true });
   } catch (error) {
@@ -308,6 +342,7 @@ async function handleSessionState(snapshot) {
     if (state.record) syncCurrentRecord({ includeMetadata: previousUserId !== snapshot.user.id, refreshLibrary: previousUserId !== snapshot.user.id });
   } else {
     state.accountLibrary = [];
+    state.cloudContentReady.clear();
     renderLibrary();
   }
 }
@@ -443,9 +478,20 @@ async function getPremiumAudio(chunkIndex, { foreground = false } = {}) {
   if (!chunk) return null;
   const key = await cacheIdentity(chunk);
   const assignment = assignmentFor(chunk.roleId);
+  const cacheSettings = { format: "mp3_44100_128", readCharacterNames: state.readCharacterNames, normalizationVersion: SPEECH_NORMALIZATION_VERSION };
+  const screenplayId = state.accountStatus === "authenticated" ? accountScreenplayId() : "";
   const promise = audioCache.getOrCreate(key, async () => {
     const controller = new AbortController(); state.controllers.set(key, controller);
-    try { return await premiumProvider.generateSpeech({ text: spokenChunkText(chunk), voiceId: assignment.voiceId, signal: controller.signal }); }
+    try {
+      return await premiumProvider.generateSpeech({
+        text: spokenChunkText(chunk),
+        voiceId: assignment.voiceId,
+        signal: controller.signal,
+        screenplayId,
+        cacheKey: key,
+        cacheSettings
+      });
+    }
     finally { state.controllers.delete(key); }
   }, { screenplayId: state.record.id, chunkIndex, roleId: chunk.roleId, model: premiumProvider.model });
   promise.then((entry) => { if (entry.metadata?.duration) state.chunkDurations.set(chunkIndex, entry.metadata.duration); }).catch(() => {});
@@ -584,7 +630,7 @@ async function commitImport(record) {
   const hydrated = await hydrateRecordFromAccount(record);
   await openRecord(hydrated);
   await saveState();
-  if (state.accountStatus === "authenticated") syncCurrentRecord({ includeMetadata: true, refreshLibrary: true });
+  if (state.accountStatus === "authenticated") await syncCurrentRecord({ includeMetadata: true, refreshLibrary: true });
   showToast(`${record.script.title} is ready.`);
 }
 
