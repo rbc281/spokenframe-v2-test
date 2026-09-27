@@ -63,7 +63,7 @@ index.html                  SpokenFrame interface
 styles.css                 Responsive V3 visual system
 assets/                    Compact app mark and favicon
 js/app.js                  Playback, Cast, previews, Media Session, persistence
-js/account/                V4 account-library mapping boundary (not yet connected)
+js/account/                V4 session and account-library adapters (not yet connected)
 js/playback-utils.js       Cast sorting, speech text, credits, progress, navigation
 js/audio-cache.js          Local cache interface and future remote-cache boundary
 js/parsers/                Format adapters and normalized screenplay model
