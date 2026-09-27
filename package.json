@@ -1,12 +1,12 @@
 {
   "name": "spokenframe",
-  "version": "4.0.0-beta.3",
+  "version": "4.0.0-beta.4-prep",
   "private": true,
   "type": "module",
   "description": "A synchronized screenplay listening experience for Final Draft, PDF, and Fountain.",
   "scripts": {
     "start": "python3 -m http.server 8080",
-    "test": "node tests/run-node-tests.mjs && node tests/run-v2-tests.mjs && node tests/run-storage-tests.mjs && node tests/run-account-tests.mjs && node tests/run-account-services-tests.mjs && node tests/run-supabase-client-tests.mjs && node tests/run-app-tests.mjs && node --test worker/test/worker.test.mjs",
+    "test": "node tests/run-node-tests.mjs && node tests/run-v2-tests.mjs && node tests/run-storage-tests.mjs && node tests/run-account-tests.mjs && node tests/run-account-services-tests.mjs && node tests/run-supabase-client-tests.mjs && node tests/run-billing-tests.mjs && node tests/run-app-tests.mjs && node --test worker/test/worker.test.mjs",
     "test:browser": "node tests/run-browser-tests.cjs"
   },
   "dependencies": {

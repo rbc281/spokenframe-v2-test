@@ -4,7 +4,7 @@
 
 SpokenFrame is an audiobook-style screenplay listener: import a screenplay, press Play, and follow the synchronized text while it is read aloud. It supports Final Draft (`.fdx`), text-based PDF, and Fountain.
 
-V4 Batch 3 adds private cross-device screenplay and premium-audio storage without changing the proven V3 screenplay player.
+V4 Batch 3 adds private cross-device screenplay and premium-audio storage without changing the proven V3 screenplay player. The Stripe-independent Batch 4 payment foundation is also prepared, but checkout remains intentionally inactive until sandbox setup is complete.
 
 ## Start here
 
@@ -13,14 +13,15 @@ V4 Batch 3 adds private cross-device screenplay and premium-audio storage withou
 - For the committed V4 public-beta plan and Android lock-screen audit, read [V4 Batch 1 Audit](docs/V4-BATCH-1-AUDIT.md).
 - For the account, library, privacy boundary, and email release gate, read [V4 Batch 2 Accounts](docs/V4-BATCH-2-ACCOUNTS.md).
 - For private screenplay storage, cross-device audio reuse, and R2 security, read [V4 Batch 3 Private Storage](docs/V4-BATCH-3-PRIVATE-STORAGE.md).
+- For the staged payment, entitlement, and spending-control foundation, read [V4 Batch 4 Payment Preparation](docs/V4-BATCH-4-PAYMENTS-PREP.md).
 - To recreate the account backend safely, follow [Supabase Setup](docs/V4-SUPABASE-SETUP.md).
 - After deployment, use the [Real-Device QA Checklist](docs/REAL-DEVICE-QA.md).
 
 ## V4 public-beta checkpoint
 
-Batch 1's architecture audit, Batch 2's account/library foundation, and Batch 3's private storage layer are complete. Guest playback remains immediate and free. Signed-in users can save screenplay content, position, speed, preferences, and generated premium passages to an owner-scoped private library.
+Batch 1's architecture audit, Batch 2's account/library foundation, and Batch 3's private storage layer are complete. Batch 4 now has deterministic pricing, server-owned payment/entitlement tables, verified-webhook plumbing, and generation guardrails prepared behind an inactive release switch. Guest playback remains immediate and free. Signed-in users can save screenplay content, position, speed, preferences, and generated premium passages to an owner-scoped private library.
 
-The original uploaded file is not retained in the cloud. SpokenFrame stores the normalized screenplay structure needed to reconstruct the reader and stores generated audio under private user/screenplay paths. Payment/entitlement enforcement is reserved for Batch 4. Premium must remain a personal beta until the Worker verifies a paid screenplay entitlement before every generation request.
+The original uploaded file is not retained in the cloud. SpokenFrame stores the normalized screenplay structure needed to reconstruct the reader and stores generated audio under private user/screenplay paths. Checkout is not live yet. Premium must remain a personal beta until the Stripe sandbox is connected, the Batch 4 migration is applied, and end-to-end payment tests pass before entitlement enforcement is enabled.
 
 ## What V3 does
 
@@ -73,6 +74,8 @@ styles.css                 Responsive V3 visual system
 assets/                    Compact app mark and favicon
 js/app.js                  Playback, Cast, previews, Media Session, persistence
 js/account/                Connected V4 session, Supabase client, and private library adapters
+js/billing/                Deterministic screenplay page-count estimation
+shared/                    Pricing policy shared by the frontend and Worker
 js/playback-utils.js       Cast sorting, speech text, credits, progress, navigation
 js/audio-cache.js          Fast local IndexedDB cache and in-flight deduplication
 js/parsers/                Format adapters and normalized screenplay model
@@ -125,7 +128,7 @@ npx playwright install chromium
 - A network connection is required for new Premium Audio. Cached chunks remain available in the same browser.
 - The local audio cache is capped at roughly 150 MB or 250 items and evicts least-recently-used entries.
 - Cloud restoration requires a network connection and a valid signed-in session. Local IndexedDB remains the fast first-level cache.
-- Payment and Premium entitlement enforcement arrive in Batch 4. Until then, Premium remains a controlled personal beta rather than a public service.
+- Batch 4 payment plumbing is staged but not active. Until Stripe sandbox verification is complete and the entitlement switch is deliberately enabled, Premium remains a controlled personal beta rather than a public service.
 - Supabase's built-in email sender is restricted to project-team testing. Custom SMTP is required before inviting public beta users.
 
 ## License

@@ -1,3 +1,14 @@
+import {
+  billingReady,
+  checkPremiumEntitlement,
+  finalizePremiumGeneration,
+  handleCheckout,
+  handleEntitlement,
+  handleStripeWebhook,
+  premiumEntitlementsRequired,
+  reservePremiumGeneration
+} from "./billing.js";
+
 const MAX_TEXT_LENGTH = 1200;
 const MAX_TTS_BODY_BYTES = 10_000;
 const MAX_SCREENPLAY_BODY_BYTES = 6_000_000;
@@ -162,7 +173,7 @@ async function authenticate(request, env, cors) {
   if (!response.ok) return { error: publicError(401, "invalid_session", "Your session has expired. Sign in again.", cors) };
   const user = await response.json().catch(() => null);
   if (!user?.id) return { error: publicError(401, "invalid_session", "Your session has expired. Sign in again.", cors) };
-  return { user: { id: String(user.id) }, authorization, config };
+  return { user: { id: String(user.id), email: String(user.email || "") }, authorization, config };
 }
 
 async function authorizeScreenplay(request, screenplayId, env, cors) {
@@ -177,7 +188,7 @@ async function authorizeScreenplay(request, screenplayId, env, cors) {
   const query = new URLSearchParams({
     id: `eq.${screenplayId}`,
     owner_user_id: `eq.${auth.user.id}`,
-    select: "id,client_fingerprint",
+    select: "id,client_fingerprint,title,page_count,spoken_character_count",
     limit: "1"
   });
   let response;
@@ -264,6 +275,8 @@ async function handlePrivateAudio(request, screenplayId, cacheKey, env, cors) {
   if (!ALLOWED_CACHE_KEY.test(cacheKey)) return publicError(400, "cache_identity", "That audio identity is invalid.", cors);
   const access = await authorizeScreenplay(request, screenplayId, env, cors);
   if (access.error) return access.error;
+  const premiumAccess = await checkPremiumEntitlement(access, env, cors);
+  if (premiumAccess.error) return premiumAccess.error;
   const objectKey = audioObjectKey(access.user.id, screenplayId, cacheKey);
   const existing = await env.PRIVATE_MEDIA.get(objectKey);
   if (existing) return privateAudioResponse(existing, env, cors, "HIT");
@@ -280,10 +293,24 @@ async function handlePrivateAudio(request, screenplayId, cacheKey, env, cors) {
   const expected = await expectedAudioCacheKey({ text: speech.text, voiceId: speech.voiceId, model, settings });
   if (expected !== cacheKey) return publicError(409, "cache_identity", "That audio identity did not match the requested passage.", cors);
 
+  const reservation = await reservePremiumGeneration(access, env, cors, {
+    cacheKey,
+    voiceId: speech.voiceId,
+    model,
+    characterCount: speech.text.length
+  });
+  if (reservation.error) return reservation.error;
+
   const limited = await enforceGenerationRateLimit(request, env, cors, access.user.id);
-  if (limited) return limited;
+  if (limited) {
+    if (reservation.eventId) await finalizePremiumGeneration(env, reservation.eventId, false, "rate_limit").catch(() => {});
+    return limited;
+  }
   const generated = await generateAudio(speech.text, speech.voiceId, env, cors);
-  if (generated.error) return generated.error;
+  if (generated.error) {
+    if (reservation.eventId) await finalizePremiumGeneration(env, reservation.eventId, false, "provider_error").catch(() => {});
+    return generated.error;
+  }
   try {
     await env.PRIVATE_MEDIA.put(objectKey, generated.audio, {
       httpMetadata: { contentType: "audio/mpeg" },
@@ -291,7 +318,13 @@ async function handlePrivateAudio(request, screenplayId, cacheKey, env, cors) {
     });
   } catch (error) {
     console.error("Private audio cache write failed", { name: error?.name, message: error?.message });
+    if (reservation.eventId) await finalizePremiumGeneration(env, reservation.eventId, true).catch(() => {});
     return privateAudioResponse(generated.audio, env, cors, "BYPASS");
+  }
+  if (reservation.eventId) {
+    await finalizePremiumGeneration(env, reservation.eventId, true).catch((error) => {
+      console.error("Premium generation accounting could not finalize", { name: error?.name, message: error?.message });
+    });
   }
   return privateAudioResponse(generated.audio, env, cors, "MISS");
 }
@@ -301,28 +334,47 @@ function privateRoute(path) {
   if (content) return { kind: "content", screenplayId: decodeURIComponent(content[1]) };
   const audio = path.match(/^\/v1\/screenplays\/([^/]+)\/audio\/([^/]+)$/);
   if (audio) return { kind: "audio", screenplayId: decodeURIComponent(audio[1]), cacheKey: decodeURIComponent(audio[2]) };
+  const entitlement = path.match(/^\/v1\/screenplays\/([^/]+)\/entitlement$/);
+  if (entitlement) return { kind: "entitlement", screenplayId: decodeURIComponent(entitlement[1]) };
+  const checkout = path.match(/^\/v1\/screenplays\/([^/]+)\/checkout$/);
+  if (checkout) return { kind: "checkout", screenplayId: decodeURIComponent(checkout[1]) };
   return null;
 }
 
 export default {
   async fetch(request, env) {
+    const path = new URL(request.url).pathname.replace(/\/$/, "");
+    if (path === "/v1/billing/webhook") {
+      if (request.method !== "POST") return publicError(405, "method_not_allowed", "That payment endpoint requires POST.", { Allow: "POST" });
+      return handleStripeWebhook(request, env);
+    }
     const origin = request.headers.get("Origin") || "";
     const cors = corsHeaders(origin, env);
     if (!cors["Access-Control-Allow-Origin"]) return publicError(403, "origin_denied", "This site is not allowed to use this SpokenFrame Worker.", { "Vary": "Origin" });
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
-    const path = new URL(request.url).pathname.replace(/\/$/, "");
     try {
       if (request.method === "GET" && path === "/v1/status") {
         if (!env.ELEVENLABS_API_KEY) return publicError(503, "not_configured", "Premium audio has not been configured.", cors);
-        return json({ ok: true, model: env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL, privateStorage: privateStorageReady(env) }, 200, { ...cors, "Cache-Control": "no-store" });
+        return json({ ok: true, model: env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL, privateStorage: privateStorageReady(env), billing: billingReady(env) }, 200, { ...cors, "Cache-Control": "no-store" });
       }
       if (request.method === "GET" && path === "/v1/voices") return handleVoices(env, cors);
-      if (request.method === "POST" && path === "/v1/tts") return handleSpeech(request, env, cors);
+      if (request.method === "POST" && path === "/v1/tts") {
+        if (premiumEntitlementsRequired(env)) return publicError(404, "not_found", "That SpokenFrame endpoint does not exist.", cors);
+        return handleSpeech(request, env, cors);
+      }
 
       const route = privateRoute(path);
       if (route?.kind === "content" && ["GET", "POST"].includes(request.method)) return handleScreenplayContent(request, route.screenplayId, env, cors);
       if (route?.kind === "audio" && request.method === "POST") return handlePrivateAudio(request, route.screenplayId, route.cacheKey, env, cors);
+      if (route?.kind === "entitlement" && request.method === "GET") {
+        const access = await authorizeScreenplay(request, route.screenplayId, env, cors);
+        return access.error || handleEntitlement(access, env, cors);
+      }
+      if (route?.kind === "checkout" && request.method === "POST") {
+        const access = await authorizeScreenplay(request, route.screenplayId, env, cors);
+        return access.error || handleCheckout(access, env, cors);
+      }
       return publicError(404, "not_found", "That SpokenFrame endpoint does not exist.", cors);
     } catch (error) {
       console.error("Worker request failed", { name: error?.name, message: error?.message });

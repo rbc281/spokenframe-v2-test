@@ -9,11 +9,15 @@ ALLOWED_ORIGINS = "http://localhost:8080,https://rbc281.github.io"
 ELEVENLABS_MODEL_ID = "eleven_flash_v2_5"
 SUPABASE_URL = "https://dzugojzwwjthiwqmmecf.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Boe3FnLa19--cH1Sy2erXg_R5gQUtw9"
+PUBLIC_APP_URL = "https://rbc281.github.io/spokenframe-v2-test"
+PREMIUM_ENTITLEMENTS_REQUIRED = "false"
 
 [[r2_buckets]]
 binding = "PRIVATE_MEDIA"
 bucket_name = "spokenframe-private-media"
 
 # The Supabase URL and publishable key above are intentionally public identifiers.
-# Never put ELEVENLABS_API_KEY, a Supabase secret/service-role key, a database
-# password, or any other credential in this file. Keep secrets in Cloudflare.
+# Never put ELEVENLABS_API_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, a
+# Supabase secret/service-role key, a database password, or any other credential
+# in this file. Keep secrets in Cloudflare. Do not set the entitlement switch to
+# true until sandbox checkout and webhook tests pass end to end.

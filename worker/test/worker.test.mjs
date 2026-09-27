@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import worker from "../src/index.js";
 
 const env = { ELEVENLABS_API_KEY: "test-secret-never-logged", ALLOWED_ORIGINS: "https://user.github.io,http://localhost:8080", ELEVENLABS_MODEL_ID: "test-model" };
@@ -198,4 +198,186 @@ test("rejects forged cache identities before spending premium generation", async
     assert.equal((await response.json()).code, "cache_identity");
     assert.equal(generations, 0);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+function billingEnvironment(bucket = new FakeR2()) {
+  return {
+    ...privateEnvironment(bucket),
+    STRIPE_SECRET_KEY: "stripe-test-key",
+    STRIPE_WEBHOOK_SECRET: "webhook-test-key",
+    SUPABASE_SERVICE_ROLE_KEY: "supabase-server-test-key",
+    PUBLIC_APP_URL: "https://user.github.io/spokenframe"
+  };
+}
+
+test("creates one-time checkout from the server-owned screenplay page count", async () => {
+  const originalFetch = globalThis.fetch;
+  let stripeForm;
+  globalThis.fetch = async (url, init = {}) => {
+    const value = String(url);
+    if (value.endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: "user-1", email: "reader@example.com" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/screenplays?")) {
+      return new Response(JSON.stringify([{ id: screenplayId, client_fingerprint: fingerprint, title: "PASSENGER", page_count: 120, spoken_character_count: 100_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (value.includes("/rest/v1/premium_entitlements?")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value === "https://api.stripe.com/v1/checkout/sessions") {
+      stripeForm = new URLSearchParams(init.body);
+      return new Response(JSON.stringify({ id: "checkout-session", url: "https://checkout.example/session" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const response = await worker.fetch(privateRequest(`/v1/screenplays/${screenplayId}/checkout`, { method: "POST" }), billingEnvironment());
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).checkoutUrl, "https://checkout.example/session");
+    assert.equal(stripeForm.get("line_items[0][price_data][unit_amount]"), "1500");
+    assert.equal(stripeForm.get("metadata[screenplay_id]"), screenplayId);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("checkout remains safely unavailable until every server secret is configured", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mockPrivateServices();
+  try {
+    const response = await worker.fetch(privateRequest(`/v1/screenplays/${screenplayId}/checkout`, { method: "POST" }), privateEnvironment());
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "checkout_unavailable");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("verified payment webhook grants an owner-scoped entitlement idempotently", async () => {
+  const originalFetch = globalThis.fetch;
+  const ownerId = "22222222-2222-4222-8222-222222222222";
+  const paymentId = "33333333-3333-4333-8333-333333333333";
+  const event = {
+    id: "evt_spokenframe_test",
+    type: "checkout.session.completed",
+    data: { object: {
+      id: "checkout-session", mode: "payment", payment_status: "paid", currency: "usd", amount_total: 1500,
+      payment_intent: "payment-intent", metadata: { user_id: ownerId, screenplay_id: screenplayId }
+    } }
+  };
+  const raw = JSON.stringify(event);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const digest = createHmac("sha256", "webhook-test-key").update(`${timestamp}.${raw}`).digest("hex");
+  const writes = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const value = String(url);
+    if (value.includes("stripe_webhook_events?") && (!init.method || init.method === "GET")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/screenplays?")) return new Response(JSON.stringify([{ id: screenplayId, owner_user_id: ownerId, title: "PASSENGER", page_count: 120, spoken_character_count: 100_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (init.method === "POST" && value.includes("/rest/v1/")) {
+      const table = value.match(/\/rest\/v1\/([^?]+)/)?.[1];
+      const body = JSON.parse(init.body);
+      writes.push({ table, body });
+      if (table === "premium_payments") return new Response(JSON.stringify([{ id: paymentId, ...body }]), { status: 201, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify([body]), { status: 201, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const webhookRequest = new Request("https://worker.example/v1/billing/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Stripe-Signature": `t=${timestamp},v1=${digest}` },
+      body: raw
+    });
+    const response = await worker.fetch(webhookRequest, billingEnvironment());
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { received: true });
+    const entitlement = writes.find(({ table }) => table === "premium_entitlements").body;
+    assert.equal(entitlement.owner_user_id, ownerId);
+    assert.equal(entitlement.amount_paid_cents, 1500);
+    assert.equal(entitlement.generation_allowance, 150_000);
+    assert(writes.some(({ table }) => table === "stripe_webhook_events"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("payment webhook rejects an invalid signature before database access", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error("should not run"); };
+  try {
+    const response = await worker.fetch(new Request("https://worker.example/v1/billing/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Stripe-Signature": "t=1,v1=invalid" },
+      body: "{}"
+    }), billingEnvironment());
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "invalid_signature");
+    assert.equal(calls, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("entitlement enforcement denies unpaid generation before cache or provider access", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: "user-1", email: "reader@example.com" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/screenplays?")) return new Response(JSON.stringify([{ id: screenplayId, client_fingerprint: fingerprint, title: "PASSENGER", page_count: 120, spoken_character_count: 100_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/premium_entitlements?")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("api.elevenlabs.io")) providerCalls += 1;
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const text = "Interior. A quiet room.";
+    const voiceId = "voice_12345678";
+    const settings = { format: "mp3_44100_128", readCharacterNames: false, normalizationVersion: 2 };
+    const key = cacheKeyFor(text, voiceId, env.ELEVENLABS_MODEL_ID, settings);
+    const response = await worker.fetch(privateRequest(`/v1/screenplays/${screenplayId}/audio/${key}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voiceId, cacheSettings: settings })
+    }), { ...billingEnvironment(), PREMIUM_ENTITLEMENTS_REQUIRED: "true" });
+    assert.equal(response.status, 402);
+    assert.equal((await response.json()).code, "premium_required");
+    assert.equal(providerCalls, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("paid generation reserves allowance, caches audio, and finalizes accounting", async () => {
+  const originalFetch = globalThis.fetch;
+  const bucket = new FakeR2();
+  const eventId = "44444444-4444-4444-8444-444444444444";
+  const rpcCalls = [];
+  let providerCalls = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const value = String(url);
+    if (value.endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: "user-1", email: "reader@example.com" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/screenplays?")) return new Response(JSON.stringify([{ id: screenplayId, client_fingerprint: fingerprint, title: "PASSENGER", page_count: 120, spoken_character_count: 100_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/premium_entitlements?")) return new Response(JSON.stringify([{ screenplay_id: screenplayId, status: "active" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/rpc/reserve_premium_generation")) {
+      rpcCalls.push({ kind: "reserve", body: JSON.parse(init.body) });
+      return new Response(JSON.stringify([{ decision: "reserved", event_id: eventId, remaining_characters: 149_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (value.includes("/rest/v1/rpc/finalize_premium_generation")) {
+      rpcCalls.push({ kind: "finalize", body: JSON.parse(init.body) });
+      return new Response("true", { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (value.includes("api.elevenlabs.io")) {
+      providerCalls += 1;
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "Content-Type": "audio/mpeg" } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const text = "Interior. A quiet room.";
+    const voiceId = "voice_12345678";
+    const settings = { format: "mp3_44100_128", readCharacterNames: false, normalizationVersion: 2 };
+    const key = cacheKeyFor(text, voiceId, env.ELEVENLABS_MODEL_ID, settings);
+    const response = await worker.fetch(privateRequest(`/v1/screenplays/${screenplayId}/audio/${key}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voiceId, cacheSettings: settings })
+    }), { ...billingEnvironment(bucket), PREMIUM_ENTITLEMENTS_REQUIRED: "true" });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("X-SpokenFrame-Cache"), "MISS");
+    assert.equal(providerCalls, 1);
+    assert.equal(rpcCalls[0].kind, "reserve");
+    assert.equal(rpcCalls[0].body.p_character_count, text.length);
+    assert.equal(rpcCalls[1].kind, "finalize");
+    assert.equal(rpcCalls[1].body.p_succeeded, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("entitlement mode disables the legacy anonymous TTS route", async () => {
+  const response = await worker.fetch(request("/v1/tts", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "A passage.", voiceId: "voice_12345678" })
+  }), { ...billingEnvironment(), PREMIUM_ENTITLEMENTS_REQUIRED: "true" });
+  assert.equal(response.status, 404);
 });

@@ -1,4 +1,5 @@
 import { buildAudioChunks } from "../audio-chunks.js";
+import { screenplayPageDetails } from "../billing/screenplay-page-count.js";
 import { progressPercent, spokenTextForChunk } from "../playback-utils.js";
 
 export const ACCOUNT_LIBRARY_SCHEMA_VERSION = 1;
@@ -24,19 +25,19 @@ export function spokenCharacterCount(script, { readCharacterNames = false } = {}
   );
 }
 
-export function screenplayLibraryRow(record, ownerUserId, {
-  pageCount = record?.script?.source?.pageCount || null,
-  pageCountMethod = record?.script?.source?.pageCount ? "pdf-exact" : (pageCount ? "screenplay-estimate-v1" : null)
-} = {}) {
+export function screenplayLibraryRow(record, ownerUserId, pageDetails = {}) {
   if (!record?.id || !record?.script?.units?.length) throw new Error("A complete local screenplay record is required.");
   if (!ownerUserId) throw new Error("An authenticated owner is required.");
+  const inferredPages = screenplayPageDetails(record.script);
+  const pageCount = pageDetails.pageCount ?? inferredPages.pageCount;
+  const pageCountMethod = pageDetails.pageCountMethod ?? inferredPages.pageCountMethod;
   return {
     owner_user_id: ownerUserId,
     client_fingerprint: record.id,
     title: String(record.script.title || "Untitled Screenplay").slice(0, 300),
     source_format: sourceFormat(record.script),
-    page_count: pageCount ? Math.max(1, Math.round(Number(pageCount))) : null,
-    page_count_method: pageCount ? pageCountMethod : null,
+    page_count: Math.max(1, Math.round(Number(pageCount))),
+    page_count_method: pageCountMethod,
     spoken_character_count: spokenCharacterCount(record.script)
   };
 }
