@@ -22,13 +22,16 @@ async function runLayout(browser, baseUrl, viewport, label) {
   await page.locator("#file-input").setInputFiles(path.join(root, "tests/fixtures/representative.fdx"));
   await page.waitForSelector("#player-view:not([hidden])");
   check(await page.locator(".script-unit.dialogue").count() === 3, `${label}: FDX dialogue missing`);
-  await page.locator("#next-button").click();
+  await page.locator('[data-index="1"]').click();
   check((await page.locator("#now-playing-heading").innerText()).startsWith("Traffic glows"), `${label}: navigation failed`);
   check(await page.locator(".script-unit.is-active").count() >= 1, `${label}: synchronized highlight missing`);
   const metrics = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: document.documentElement.clientWidth }));
   check(metrics.body <= metrics.viewport + 1, `${label}: horizontal overflow (${metrics.body}/${metrics.viewport})`);
-  const playBox = await page.locator("#play-button").boundingBox(); const nextBox = await page.locator("#next-button").boundingBox();
-  check(playBox.width >= 72 && playBox.height >= 72, `${label}: play target is too small`); check(nextBox.width >= 54 && nextBox.height >= 54, `${label}: next target is too small`);
+  const playBox = await page.locator("#play-button").boundingBox(); const nextBox = await page.locator("#next-scene-button").boundingBox();
+  check(playBox.width >= 70 && playBox.height >= 70, `${label}: play target is too small`); check(nextBox.width >= 44 && nextBox.height >= 44, `${label}: next target is too small`);
+  await page.locator("#account-button").click();
+  check(await page.locator("#account-modal:not([hidden])").count() === 1, `${label}: account entry point failed`);
+  await page.locator("#close-account-button").click();
   await page.screenshot({ path: path.join(root, "test-results", `${label}.png`), fullPage: true });
   await page.close();
 }

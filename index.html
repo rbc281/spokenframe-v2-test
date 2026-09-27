@@ -16,24 +16,39 @@
         <button class="brand" id="brand-button" type="button" aria-label="SpokenFrame home">
           <img src="assets/logo.svg" alt="" width="36" height="36"><span class="brand-word">SpokenFrame</span>
         </button>
-        <div class="topbar-actions" id="player-header-actions" hidden>
-          <button class="quiet-button" id="cast-button" type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-2a4 4 0 0 0-3-3.9M16 2.1a4 4 0 0 1 0 7.8"/></svg><span>Cast</span>
+        <div class="topbar-end">
+          <div class="topbar-actions" id="player-header-actions" hidden>
+            <button class="quiet-button" id="cast-button" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-2a4 4 0 0 0-3-3.9M16 2.1a4 4 0 0 1 0 7.8"/></svg><span>Cast</span>
+            </button>
+            <label class="quiet-button file-button" for="replace-file-input">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5"/></svg><span>New script</span>
+            </label>
+            <input class="visually-hidden" id="replace-file-input" type="file" accept=".fdx,.pdf,.fountain,.spmd,application/pdf,application/xml,text/plain">
+          </div>
+          <button class="account-button" id="account-button" type="button" aria-label="Sign in or create an account">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/></svg>
+            <span id="account-button-label">Sign in</span>
           </button>
-          <label class="quiet-button file-button" for="replace-file-input">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5"/></svg><span>New script</span>
-          </label>
-          <input class="visually-hidden" id="replace-file-input" type="file" accept=".fdx,.pdf,.fountain,.spmd,application/pdf,application/xml,text/plain">
         </div>
       </header>
 
       <main id="main">
         <section class="landing" id="landing-view" aria-labelledby="landing-title">
           <div class="hero-copy">
-            <p class="eyebrow">Listen to the page</p>
+            <p class="eyebrow">Listen instantly · Free</p>
             <h1 id="landing-title">Your Screenplay.<br>Read Aloud.</h1>
-            <p class="hero-subtitle">A focused, synchronized listening experience for screenplays. Import locally, press Play, and follow every line.</p>
+            <p class="hero-subtitle">Upload your screenplay and start listening immediately. No account required.</p>
           </div>
+          <div class="account-context" id="account-context">
+            <div><strong id="account-context-title">Listening as Guest</strong><span id="account-context-copy">Create a free account to save your progress and build your library.</span></div>
+            <button id="account-context-action" type="button">Create free account</button>
+          </div>
+          <section class="library-section" id="library-section" aria-labelledby="library-title" hidden>
+            <div class="library-heading"><div><p class="eyebrow">YOUR LIBRARY</p><h2 id="library-title">Continue listening</h2></div><button class="text-button" id="library-refresh-button" type="button">Refresh</button></div>
+            <div class="library-list" id="library-list"></div>
+            <p class="library-empty" id="library-empty" hidden>Your saved screenplays will appear here after you upload them.</p>
+          </section>
           <div class="resume-card" id="resume-card" hidden>
             <div class="resume-art" aria-hidden="true"><span id="resume-format">SCRIPT</span></div>
             <div class="resume-copy"><p class="resume-label">Continue listening</p><h2 id="resume-title">Untitled Screenplay</h2><p id="resume-detail">Ready to resume</p><div class="mini-progress" aria-hidden="true"><span id="resume-progress"></span></div></div>
@@ -87,6 +102,31 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+    <div class="modal-backdrop" id="account-modal" hidden>
+      <section class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+        <div class="modal-header">
+          <div><p class="eyebrow">FREE ACCOUNT</p><h2 id="account-modal-title">Welcome back</h2><p id="account-modal-copy">Sign in to open your library and resume your screenplays.</p></div>
+          <button class="icon-button" id="close-account-button" type="button" aria-label="Close account window"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div class="account-body">
+          <form class="account-form" id="account-form" novalidate>
+            <label id="account-email-field"><span>Email address</span><input id="account-email" type="email" autocomplete="email" inputmode="email" required></label>
+            <label id="account-password-field"><span id="account-password-label">Password</span><input id="account-password" type="password" autocomplete="current-password" minlength="8" required></label>
+            <label id="account-confirm-field" hidden><span>Confirm password</span><input id="account-password-confirm" type="password" autocomplete="new-password" minlength="8"></label>
+            <p class="account-message" id="account-message" role="alert" hidden></p>
+            <button class="primary-button account-submit" id="account-submit" type="submit">Sign in</button>
+            <div class="account-links"><button class="text-button" id="account-mode-button" type="button">Create a free account</button><button class="text-button" id="forgot-password-button" type="button">Forgot password?</button></div>
+          </form>
+          <div class="account-profile" id="account-profile" hidden>
+            <div class="account-avatar" aria-hidden="true"><span id="account-initial">S</span></div>
+            <strong id="account-profile-email"></strong>
+            <p>Your library and listening position are saved to this account.</p>
+            <button class="secondary-button" id="sign-out-button" type="button">Sign out</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div class="modal-backdrop" id="cast-modal" hidden>
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cast-modal-title">
         <div class="modal-header"><div><p class="eyebrow">CAST</p><h2 id="cast-modal-title">Voices</h2><p>Everyone begins with one consistent voice. Changes are saved for this screenplay.</p></div><button class="icon-button" id="close-cast-button" type="button" aria-label="Close Cast"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
@@ -115,6 +155,7 @@
     </div>
 
     <noscript><p class="noscript">SpokenFrame needs JavaScript enabled to read your screenplay.</p></noscript>
+    <script src="vendor/supabase/supabase.js"></script>
     <script type="module" src="js/app.js"></script>
   </body>
 </html>

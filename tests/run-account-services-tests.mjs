@@ -25,18 +25,22 @@ function fakeAuthClient() {
 const fake = fakeAuthClient();
 const sessions = new AccountSessionService(fake, { redirectUrl: "https://example.test/account" });
 const observed = [];
+const authEvents = [];
 const unsubscribe = sessions.subscribe((state) => observed.push(state.status));
+const unsubscribeEvents = sessions.subscribeEvents((event) => authEvents.push(event));
 assert.equal((await sessions.initialize()).status, "guest");
 assert.deepEqual(await sessions.signUp(" Roger@Example.com ", "long-enough-password"), { user: { id: "user-1", email: "roger@example.com" }, confirmationRequired: true });
 assert.equal(fake.calls.find(([name]) => name === "signUp")[1].options.emailRedirectTo, "https://example.test/account");
 assert.equal((await sessions.signIn("Roger@example.com", "long-enough-password")).status, "authenticated");
 fake.emit("SIGNED_IN", { user: { id: "user-1", email: "roger@example.com" } });
+fake.emit("PASSWORD_RECOVERY", { user: { id: "user-1", email: "roger@example.com" } });
 await sessions.requestPasswordReset("roger@example.com");
 await sessions.updatePassword("another-long-password");
 await sessions.signOut();
 assert.equal(sessions.snapshot().status, "guest");
-unsubscribe(); sessions.destroy();
+unsubscribe(); unsubscribeEvents(); sessions.destroy();
 assert(observed.includes("authenticated"));
+assert(authEvents.includes("PASSWORD_RECOVERY"));
 console.log("✓ account session supports signup, login, recovery, logout, and auth events");
 
 await assert.rejects(() => sessions.signIn("not-an-email", "long-enough-password"), (error) => error instanceof AccountError && error.code === "invalid_email");
@@ -52,6 +56,14 @@ await assert.rejects(
 );
 console.log("✓ account provider errors are converted to safe customer-facing messages");
 
+const restrictedEmailAuth = fakeAuthClient();
+restrictedEmailAuth.auth.signUp = async () => ({ data: null, error: { status: 400, message: "Email address not authorized by default SMTP" } });
+await assert.rejects(
+  () => new AccountSessionService(restrictedEmailAuth).signUp("reader@example.com", "long-enough-password"),
+  (error) => error instanceof AccountError && error.code === "email_delivery_unavailable" && !/smtp/i.test(error.message)
+);
+console.log("✓ restricted email delivery is explained without exposing provider terminology");
+
 class Query {
   constructor(client, table) { this.client = client; this.table = table; this.operation = {}; }
   select(columns) { this.operation.select = columns; return this; }
@@ -66,7 +78,7 @@ class Query {
 const database = {
   calls: [],
   rows: {
-    screenplays: [{ id: "screenplay-1", title: "PASSENGER" }],
+    screenplays: [{ id: "screenplay-1", title: "PASSENGER", playback_states: [{ progress_percent: 27, current_scene: "INT. CAR - NIGHT" }], screenplay_settings: [{ audio_quality: "standard" }] }],
     playback_states: [{ current_unit: 2, playback_speed: 1.25 }],
     screenplay_settings: [{ audio_quality: "standard", read_character_names: false, cast_assignments: {} }]
   },
@@ -77,7 +89,10 @@ const library = new SupabaseLibraryRepository(database, signedInSession);
 const source = await fs.readFile(new URL("./fixtures/representative.fdx", import.meta.url), "utf8");
 const record = { id: "0123456789abcdef0123456789abcdef", script: parseFdx(source, "PASSENGER"), preferences: { currentIndex: 2, rate: 1.25, provider: "browser" } };
 
-assert.equal((await library.listScreenplays())[0].title, "PASSENGER");
+const listed = (await library.listScreenplays())[0];
+assert.equal(listed.title, "PASSENGER");
+assert.equal(listed.playback.progress_percent, 27);
+assert.equal(listed.settings.audio_quality, "standard");
 const saved = await library.saveScreenplay(record);
 assert.equal(saved.id, "screenplay-1");
 const metadataCall = database.calls.find(([table, operation]) => table === "screenplays" && operation.upsert);

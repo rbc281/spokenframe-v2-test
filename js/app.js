@@ -1,6 +1,10 @@
 import { AudioCache } from "./audio-cache.js";
 import { buildAudioChunks, chunkIndexForUnit } from "./audio-chunks.js";
 import { AudioPlayer } from "./audio-player.js";
+import { AccountSessionService } from "./account/account-session.js";
+import { SupabaseLibraryRepository } from "./account/library-repository.js";
+import { applyCloudPreferences } from "./account/library-model.js";
+import { createSpokenFrameSupabaseClient } from "./account/supabase-client.js";
 import { SPOKENFRAME_CONFIG } from "./config.js";
 import { parseScreenplay, ScreenplayParseError, supportedFile } from "./parsers/parser-registry.js";
 import {
@@ -21,6 +25,9 @@ const $ = (selector) => document.querySelector(selector);
 const elements = {
   landing: $("#landing-view"), player: $("#player-view"), headerActions: $("#player-header-actions"), fileInput: $("#file-input"), replaceFileInput: $("#replace-file-input"), dropZone: $("#drop-zone"),
   uploadTitle: $("#upload-title"), uploadButtonLabel: $("#upload-button-label"), resumeCard: $("#resume-card"), resumeTitle: $("#resume-title"), resumeDetail: $("#resume-detail"), resumeProgress: $("#resume-progress"), resumeButton: $("#resume-button"), resumeFormat: $("#resume-format"),
+  accountButton: $("#account-button"), accountButtonLabel: $("#account-button-label"), accountContext: $("#account-context"), accountContextTitle: $("#account-context-title"), accountContextCopy: $("#account-context-copy"), accountContextAction: $("#account-context-action"),
+  librarySection: $("#library-section"), libraryList: $("#library-list"), libraryEmpty: $("#library-empty"), libraryRefreshButton: $("#library-refresh-button"),
+  accountModal: $("#account-modal"), closeAccountButton: $("#close-account-button"), accountModalTitle: $("#account-modal-title"), accountModalCopy: $("#account-modal-copy"), accountForm: $("#account-form"), accountEmailField: $("#account-email-field"), accountEmail: $("#account-email"), accountPasswordField: $("#account-password-field"), accountPasswordLabel: $("#account-password-label"), accountPassword: $("#account-password"), accountConfirmField: $("#account-confirm-field"), accountPasswordConfirm: $("#account-password-confirm"), accountMessage: $("#account-message"), accountSubmit: $("#account-submit"), accountModeButton: $("#account-mode-button"), forgotPasswordButton: $("#forgot-password-button"), accountProfile: $("#account-profile"), accountProfileEmail: $("#account-profile-email"), accountInitial: $("#account-initial"), signOutButton: $("#sign-out-button"),
   brandButton: $("#brand-button"), scriptTitle: $("#script-title"), scriptFormat: $("#script-format"), scriptMeta: $("#script-meta"), scriptPages: $("#script-pages"),
   currentScene: $("#current-scene"), currentSpeaker: $("#current-speaker"), nowPlaying: $("#now-playing-heading"), passageKind: $("#passage-kind"), audioStatus: $("#audio-status"),
   playButton: $("#play-button"), previousSceneButton: $("#previous-scene-button"), nextSceneButton: $("#next-scene-button"), backThreeButton: $("#back-three-button"), forwardThreeButton: $("#forward-three-button"),
@@ -38,11 +45,16 @@ const AudioConstructor = globalThis.Audio || window.Audio;
 const audioPlayer = canUseAudio ? new AudioPlayer(new AudioConstructor()) : null;
 const previewPlayer = canUseAudio ? new AudioPlayer(new AudioConstructor()) : null;
 const audioCache = new AudioCache();
+const supabaseClient = createSpokenFrameSupabaseClient(SPOKENFRAME_CONFIG);
+const accountSession = supabaseClient ? new AccountSessionService(supabaseClient, { redirectUrl: SPOKENFRAME_CONFIG.accountRedirectUrl }) : null;
+const accountLibrary = accountSession ? new SupabaseLibraryRepository(supabaseClient, accountSession) : null;
 const state = {
   record: null, chunks: [], chunkIndex: 0, index: 0, isPlaying: false, isBuffering: false, rate: 1, providerId: "browser",
   readCharacterNames: false, voices: { browser: [], elevenlabs: [] }, premiumReady: false, voiceAssignments: {}, chunkPosition: 0,
   controllers: new Map(), chunkDurations: new Map(), saveTimer: null, lastFocused: null, pendingRecord: null,
-  playbackToken: 0, previewToken: 0, previewController: null, previewButton: null
+  playbackToken: 0, previewToken: 0, previewController: null, previewButton: null,
+  accountStatus: accountSession ? "loading" : "unavailable", accountUser: null, accountMode: "signin", accountLibrary: [], accountRequestBusy: false,
+  cloudSaveTimer: null, cloudSaveSignature: "", cloudSaveRunning: false, cloudSavePending: false
 };
 
 function showToast(message, duration = 4200) {
@@ -54,6 +66,278 @@ function errorMessage(error) {
   if (error instanceof ScreenplayParseError) return error.message;
   if (/storage/i.test(error?.message || "")) return "This browser could not save the screenplay. You can still listen during this session.";
   return "SpokenFrame could not open that screenplay. Try another Final Draft, PDF, or Fountain file.";
+}
+
+function accountScreenplayId(record = state.record) {
+  const ownerId = state.accountUser?.id;
+  if (!record || !ownerId) return "";
+  return record.accountLinks?.[ownerId]
+    || state.accountLibrary.find((item) => item.client_fingerprint === record.id)?.id
+    || "";
+}
+
+function setAccountMessage(message = "", success = false) {
+  elements.accountMessage.textContent = message;
+  elements.accountMessage.hidden = !message;
+  elements.accountMessage.classList.toggle("is-success", success);
+}
+
+function setAccountMode(mode, message = "") {
+  state.accountMode = mode;
+  elements.accountProfile.hidden = true;
+  elements.accountForm.hidden = false;
+  elements.accountEmailField.hidden = mode === "reset";
+  elements.accountPasswordField.hidden = mode === "forgot";
+  elements.accountConfirmField.hidden = !["signup", "reset"].includes(mode);
+  elements.forgotPasswordButton.hidden = mode !== "signin";
+  elements.accountPassword.autocomplete = mode === "signin" ? "current-password" : "new-password";
+  elements.accountPasswordLabel.textContent = mode === "reset" ? "New password" : "Password";
+  elements.accountPassword.value = "";
+  elements.accountPasswordConfirm.value = "";
+  const content = {
+    signin: ["Welcome back", "Sign in to open your library and resume your screenplays.", "Sign in", "Create a free account"],
+    signup: ["Create your free account", "Save your library, listening position, and preferences.", "Create account", "Already have an account? Sign in"],
+    forgot: ["Reset your password", "We’ll email you a secure link to choose a new password.", "Send reset link", "Back to sign in"],
+    reset: ["Choose a new password", "Use at least 8 characters, then return to your library.", "Update password", "Back to sign in"]
+  }[mode] || null;
+  if (!content) return;
+  [elements.accountModalTitle.textContent, elements.accountModalCopy.textContent, elements.accountSubmit.textContent, elements.accountModeButton.textContent] = content;
+  setAccountMessage(message, Boolean(message));
+}
+
+function openAccountModal(mode = "signin") {
+  if (!accountSession) {
+    showToast("Accounts are temporarily unavailable. You can continue listening as a guest.");
+    return;
+  }
+  state.lastFocused = document.activeElement;
+  if (state.accountStatus === "authenticated") {
+    elements.accountForm.hidden = true;
+    elements.accountProfile.hidden = false;
+    elements.accountModalTitle.textContent = "Your account";
+    elements.accountModalCopy.textContent = "Your listening library and preferences are saved here.";
+    elements.accountProfileEmail.textContent = state.accountUser.email;
+    elements.accountInitial.textContent = (state.accountUser.email?.[0] || "S").toUpperCase();
+  } else {
+    setAccountMode(mode);
+  }
+  elements.accountModal.hidden = false;
+  (state.accountStatus === "authenticated" ? elements.signOutButton : (mode === "reset" ? elements.accountPassword : elements.accountEmail)).focus();
+}
+
+function closeAccountModal() {
+  if (elements.accountModal.hidden) return;
+  elements.accountModal.hidden = true;
+  setAccountMessage();
+  state.lastFocused?.focus?.();
+}
+
+function renderAccountState() {
+  const authenticated = state.accountStatus === "authenticated" && state.accountUser;
+  elements.accountButton.classList.toggle("is-authenticated", Boolean(authenticated));
+  elements.accountButtonLabel.textContent = authenticated ? "Library" : "Sign in";
+  elements.accountButton.setAttribute("aria-label", authenticated ? `Open account for ${state.accountUser.email}` : "Sign in or create an account");
+  if (authenticated) {
+    elements.accountContextTitle.textContent = `Signed in as ${state.accountUser.email}`;
+    elements.accountContextCopy.textContent = "Your library, listening position, and preferences are saved to this account.";
+    elements.accountContextAction.textContent = "View account";
+    elements.librarySection.hidden = false;
+  } else {
+    elements.accountContextTitle.textContent = "Listening as Guest";
+    elements.accountContextCopy.textContent = "Create a free account to save your progress and build your library.";
+    elements.accountContextAction.textContent = "Create free account";
+    elements.librarySection.hidden = true;
+  }
+}
+
+function renderLibrary() {
+  elements.libraryList.replaceChildren();
+  elements.libraryEmpty.hidden = state.accountLibrary.length > 0;
+  const fragment = document.createDocumentFragment();
+  state.accountLibrary.forEach((entry) => {
+    const progress = Math.max(0, Math.min(100, Number(entry.playback?.progress_percent) || 0));
+    const scene = entry.playback?.current_scene || "Ready to begin";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "library-item";
+    button.setAttribute("aria-label", `Continue ${entry.title}`);
+    const format = document.createElement("span"); format.className = "library-format"; format.textContent = String(entry.source_format || "script").toUpperCase();
+    const copy = document.createElement("span"); copy.className = "library-copy";
+    const title = document.createElement("strong"); title.textContent = entry.title;
+    const detail = document.createElement("span"); detail.textContent = `${progress}% · ${scene}`;
+    const action = document.createElement("span"); action.className = "library-action"; action.textContent = "Continue";
+    copy.append(title, detail); button.append(format, copy, action);
+    button.addEventListener("click", () => openLibraryEntry(entry));
+    fragment.appendChild(button);
+  });
+  elements.libraryList.appendChild(fragment);
+}
+
+async function loadAccountLibrary({ quiet = false } = {}) {
+  if (!accountLibrary || state.accountStatus !== "authenticated") return [];
+  try {
+    state.accountLibrary = await accountLibrary.listScreenplays();
+    renderLibrary();
+    return state.accountLibrary;
+  } catch (error) {
+    console.warn("Account library could not be loaded:", { code: error?.code, message: error?.message });
+    if (!quiet) showToast(error?.message || "Your library couldn’t be loaded.");
+    return [];
+  }
+}
+
+async function hydrateRecordFromAccount(record) {
+  if (!record || state.accountStatus !== "authenticated" || !accountLibrary) return record;
+  const screenplayId = accountScreenplayId(record);
+  if (!screenplayId) return record;
+  try {
+    const { playback, settings } = await accountLibrary.loadPreferences(screenplayId);
+    const merged = applyCloudPreferences(record, playback, settings);
+    merged.accountLinks = { ...(record.accountLinks || {}), [state.accountUser.id]: screenplayId };
+    return await saveScreenplay(merged);
+  } catch (error) {
+    console.warn("Cloud preferences could not be restored:", { code: error?.code, message: error?.message });
+    showToast("Your saved position couldn’t be reached. Continuing from this device.");
+    return record;
+  }
+}
+
+async function openLibraryEntry(entry) {
+  try {
+    const local = await loadScreenplay(entry.client_fingerprint);
+    if (!local) {
+      showToast("Re-upload this screenplay to listen on this device. Cross-device file sync arrives in the next update.", 6500);
+      elements.fileInput.click();
+      return;
+    }
+    local.accountLinks = { ...(local.accountLinks || {}), [state.accountUser.id]: entry.id };
+    await openRecord(await hydrateRecordFromAccount(local));
+  } catch (error) {
+    console.warn("Library screenplay could not be opened:", error);
+    showToast("That screenplay isn’t stored on this device. Re-upload it to continue.");
+  }
+}
+
+async function syncCurrentRecord({ includeMetadata = false, refreshLibrary = false } = {}) {
+  if (!state.record || state.accountStatus !== "authenticated" || !accountLibrary || state.cloudSaveRunning) {
+    if (state.cloudSaveRunning) state.cloudSavePending = true;
+    return;
+  }
+  const record = state.record;
+  const ownerId = state.accountUser.id;
+  const screenplayId = accountScreenplayId(record);
+  const signature = JSON.stringify({ id: record.id, ownerId, screenplayId, preferences: currentPreferences() });
+  if (!includeMetadata && screenplayId && signature === state.cloudSaveSignature) return;
+  state.cloudSaveRunning = true;
+  try {
+    let id = screenplayId;
+    if (!id || includeMetadata) {
+      const saved = await accountLibrary.saveScreenplay(record);
+      id = saved.id;
+    } else {
+      await Promise.all([accountLibrary.savePlayback(record, id), accountLibrary.saveSettings(record, id)]);
+    }
+    record.accountLinks = { ...(record.accountLinks || {}), [ownerId]: id };
+    if (state.record?.id === record.id) state.record = await saveScreenplay(record);
+    state.cloudSaveSignature = JSON.stringify({ id: record.id, ownerId, screenplayId: id, preferences: currentPreferences() });
+    if (refreshLibrary || !screenplayId) await loadAccountLibrary({ quiet: true });
+  } catch (error) {
+    console.warn("Account library could not be updated:", { code: error?.code, message: error?.message });
+    showToast(error?.message || "Your account library couldn’t be updated.");
+  } finally {
+    state.cloudSaveRunning = false;
+    if (state.cloudSavePending) {
+      state.cloudSavePending = false;
+      queueCloudSave(250);
+    }
+  }
+}
+
+function queueCloudSave(delay = 2800) {
+  if (state.accountStatus !== "authenticated" || !state.record) return;
+  clearTimeout(state.cloudSaveTimer);
+  state.cloudSaveTimer = setTimeout(() => syncCurrentRecord(), delay);
+}
+
+async function handleAccountSubmit(event) {
+  event.preventDefault();
+  if (!accountSession || state.accountRequestBusy) return;
+  const email = elements.accountEmail.value;
+  const password = elements.accountPassword.value;
+  const confirmation = elements.accountPasswordConfirm.value;
+  setAccountMessage();
+  if (["signup", "reset"].includes(state.accountMode) && password !== confirmation) {
+    setAccountMessage("Those passwords don’t match.");
+    return;
+  }
+  state.accountRequestBusy = true;
+  elements.accountSubmit.disabled = true;
+  try {
+    if (state.accountMode === "signup") {
+      const result = await accountSession.signUp(email, password);
+      if (result.confirmationRequired) {
+        setAccountMessage("Check your email and select the confirmation link. Then return here and sign in.", true);
+        return;
+      }
+      closeAccountModal(); showToast("Your free account is ready.");
+    } else if (state.accountMode === "signin") {
+      await accountSession.signIn(email, password);
+      closeAccountModal(); showToast("Signed in. Your library is ready.");
+    } else if (state.accountMode === "forgot") {
+      await accountSession.requestPasswordReset(email);
+      setAccountMessage("Check your email for the password reset link.", true);
+    } else if (state.accountMode === "reset") {
+      await accountSession.updatePassword(password);
+      closeAccountModal(); showToast("Your password has been updated.");
+    }
+  } catch (error) {
+    setAccountMessage(error?.message || "SpokenFrame couldn’t complete that request.");
+  } finally {
+    state.accountRequestBusy = false;
+    elements.accountSubmit.disabled = false;
+  }
+}
+
+async function handleSessionState(snapshot) {
+  const previousUserId = state.accountUser?.id || "";
+  state.accountStatus = snapshot.status;
+  state.accountUser = snapshot.user;
+  renderAccountState();
+  if (snapshot.status === "authenticated") {
+    await loadAccountLibrary({ quiet: true });
+    if (state.record) syncCurrentRecord({ includeMetadata: previousUserId !== snapshot.user.id, refreshLibrary: previousUserId !== snapshot.user.id });
+  } else {
+    state.accountLibrary = [];
+    renderLibrary();
+  }
+}
+
+async function initializeAccounts() {
+  renderAccountState();
+  if (!accountSession) return;
+  let initializing = true;
+  accountSession.subscribe((snapshot) => {
+    if (initializing) {
+      state.accountStatus = snapshot.status;
+      state.accountUser = snapshot.user;
+      renderAccountState();
+      return;
+    }
+    handleSessionState(snapshot);
+  });
+  accountSession.subscribeEvents((event) => {
+    if (event === "PASSWORD_RECOVERY") openAccountModal("reset");
+  });
+  try {
+    const snapshot = await accountSession.initialize();
+    initializing = false;
+    await handleSessionState(snapshot);
+  }
+  catch (error) {
+    initializing = false;
+    console.warn("Account connection could not initialize:", { code: error?.code, message: error?.message });
+    showToast("Accounts couldn’t connect. Guest listening is still available.");
+  }
 }
 
 function defaultPreferences() {
@@ -279,7 +563,10 @@ function currentPreferences() {
 async function saveState() {
   if (!state.record) return;
   state.record.preferences = currentPreferences();
-  try { state.record = await saveScreenplay(state.record); } catch { /* Playback remains usable without persistence. */ }
+  try {
+    state.record = await saveScreenplay(state.record);
+    queueCloudSave();
+  } catch { /* Playback remains usable without persistence. */ }
 }
 
 async function openRecord(record) {
@@ -293,7 +580,13 @@ async function openRecord(record) {
   renderScript(); elements.landing.hidden = true; elements.player.hidden = false; elements.headerActions.hidden = false; updateNowPlaying({ scroll: true }); queueSave();
 }
 
-async function commitImport(record) { await openRecord(record); await saveState(); showToast(`${record.script.title} is ready.`); }
+async function commitImport(record) {
+  const hydrated = await hydrateRecordFromAccount(record);
+  await openRecord(hydrated);
+  await saveState();
+  if (state.accountStatus === "authenticated") syncCurrentRecord({ includeMetadata: true, refreshLibrary: true });
+  showToast(`${record.script.title} is ready.`);
+}
 
 async function handleFile(file) {
   if (!file) return;
@@ -433,7 +726,7 @@ function populateResume(record) {
   elements.resumeTitle.textContent = record.script.title;
   elements.resumeDetail.textContent = progress > 0 ? `${progress}% · ${scene}` : "Ready to begin";
   elements.resumeProgress.style.width = `${progress}%`; elements.resumeFormat.textContent = record.script.format?.toUpperCase() || "SCRIPT"; elements.resumeCard.hidden = false;
-  elements.resumeButton.setAttribute("aria-label", `Continue ${record.script.title}`); elements.resumeButton.onclick = () => openRecord(record);
+  elements.resumeButton.setAttribute("aria-label", `Continue ${record.script.title}`); elements.resumeButton.onclick = async () => openRecord(await hydrateRecordFromAccount(record));
   elements.landing.classList.add("has-resume"); elements.uploadTitle.textContent = "Open a different screenplay"; elements.uploadButtonLabel.textContent = "Choose another screenplay";
 }
 
@@ -461,6 +754,21 @@ function setupMediaSession() {
 
 function bindEvents() {
   elements.fileInput.addEventListener("change", (event) => handleFile(event.target.files[0])); elements.replaceFileInput.addEventListener("change", (event) => handleFile(event.target.files[0]));
+  elements.accountButton.addEventListener("click", () => openAccountModal(state.accountStatus === "authenticated" ? "profile" : "signin"));
+  elements.accountContextAction.addEventListener("click", () => openAccountModal(state.accountStatus === "authenticated" ? "profile" : "signup"));
+  elements.closeAccountButton.addEventListener("click", closeAccountModal);
+  elements.accountModal.addEventListener("click", (event) => { if (event.target === elements.accountModal) closeAccountModal(); });
+  elements.accountForm.addEventListener("submit", handleAccountSubmit);
+  elements.accountModeButton.addEventListener("click", () => setAccountMode(state.accountMode === "signin" ? "signup" : "signin"));
+  elements.forgotPasswordButton.addEventListener("click", () => setAccountMode("forgot"));
+  elements.signOutButton.addEventListener("click", async () => {
+    if (state.accountRequestBusy) return;
+    state.accountRequestBusy = true;
+    try { await accountSession?.signOut(); closeAccountModal(); showToast("Signed out. Guest listening is still available."); }
+    catch (error) { showToast(error?.message || "SpokenFrame couldn’t sign out."); }
+    finally { state.accountRequestBusy = false; }
+  });
+  elements.libraryRefreshButton.addEventListener("click", () => loadAccountLibrary());
   elements.playButton.addEventListener("click", togglePlayback); elements.previousSceneButton.addEventListener("click", () => moveScene(-1)); elements.nextSceneButton.addEventListener("click", () => moveScene(1));
   elements.backThreeButton.addEventListener("click", () => movePassages(-1)); elements.forwardThreeButton.addEventListener("click", () => movePassages(1)); elements.brandButton.addEventListener("click", showHome);
   elements.castButton.addEventListener("click", openCastModal); elements.closeCastButton.addEventListener("click", closeCastModal); elements.doneCastButton.addEventListener("click", closeCastModal); elements.castModal.addEventListener("click", (event) => { if (event.target === elements.castModal) closeCastModal(); });
@@ -476,8 +784,8 @@ function bindEvents() {
   ["dragleave", "drop"].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.remove("is-dragging"); })); elements.dropZone.addEventListener("drop", (event) => handleFile(event.dataTransfer.files[0]));
   document.addEventListener("keydown", (event) => {
     const interactive = /INPUT|SELECT|TEXTAREA|BUTTON/.test(event.target.tagName);
-    if (event.key === "Escape") { closeCastModal(); closeFallback(); }
-    if (!state.record || interactive || !elements.castModal.hidden || !elements.fallbackModal.hidden) return;
+    if (event.key === "Escape") { closeAccountModal(); closeCastModal(); closeFallback(); }
+    if (!state.record || interactive || !elements.accountModal.hidden || !elements.castModal.hidden || !elements.fallbackModal.hidden) return;
     if (event.code === "Space") { event.preventDefault(); togglePlayback(); }
     if (event.key === "ArrowLeft") { event.preventDefault(); movePassages(-1); }
     if (event.key === "ArrowRight") { event.preventDefault(); movePassages(1); }
@@ -501,8 +809,12 @@ async function initProviders() {
 }
 
 async function init() {
-  bindEvents(); setupMediaSession(); await initProviders();
-  try { const last = await loadLastScreenplay(); if (last) populateResume(last); }
+  bindEvents(); setupMediaSession();
+  await Promise.all([initProviders(), initializeAccounts()]);
+  try {
+    const last = await loadLastScreenplay();
+    if (last) populateResume(await hydrateRecordFromAccount(last));
+  }
   catch (error) { console.warn("Saved screenplay could not be restored:", error); showToast("A saved screenplay could not be restored. You can import it again.", 5000); }
 }
 

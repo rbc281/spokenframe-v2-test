@@ -2,6 +2,8 @@
 
 This guide assumes you already have GitHub, Cloudflare, ElevenLabs, and an ElevenLabs API key. You will never paste that key into GitHub or any SpokenFrame file.
 
+For the V4 free-account database and sign-in setup, use the separate [Supabase Setup Guide](V4-SUPABASE-SETUP.md). Supabase secret keys and database passwords never belong in GitHub.
+
 There are two parts:
 
 1. GitHub Pages hosts the visible SpokenFrame website.

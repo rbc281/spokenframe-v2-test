@@ -14,6 +14,9 @@ export function accountError(error) {
   if (/email.*not confirmed|confirm.*email/.test(message)) {
     return new AccountError("email_unconfirmed", "Confirm your email before signing in.", status);
   }
+  if (/email.*not authorized|address.*not authorized/.test(message)) {
+    return new AccountError("email_delivery_unavailable", "Account email delivery isn’t ready for this address yet.", status);
+  }
   if (/already registered|already exists/.test(message)) {
     return new AccountError("account_exists", "An account already exists for that email.", status);
   }
@@ -57,6 +60,7 @@ export class AccountSessionService {
     this.redirectUrl = redirectUrl;
     this.state = Object.freeze({ status: "loading", user: null });
     this.listeners = new Set();
+    this.eventListeners = new Set();
     this.subscription = null;
   }
 
@@ -66,6 +70,11 @@ export class AccountSessionService {
     this.listeners.add(listener);
     listener(this.state);
     return () => this.listeners.delete(listener);
+  }
+
+  subscribeEvents(listener) {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
   }
 
   #update(session) {
@@ -79,7 +88,10 @@ export class AccountSessionService {
       const { data, error } = await this.client.auth.getSession();
       if (error) throw error;
       this.#update(data?.session || null);
-      const result = this.client.auth.onAuthStateChange((_event, session) => this.#update(session));
+      const result = this.client.auth.onAuthStateChange((event, session) => {
+        this.#update(session);
+        this.eventListeners.forEach((listener) => listener(event, this.state));
+      });
       this.subscription = result?.data?.subscription || null;
       return this.state;
     } catch (error) {
@@ -136,5 +148,6 @@ export class AccountSessionService {
     this.subscription?.unsubscribe?.();
     this.subscription = null;
     this.listeners.clear();
+    this.eventListeners.clear();
   }
 }

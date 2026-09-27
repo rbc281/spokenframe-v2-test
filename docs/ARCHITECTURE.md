@@ -1,4 +1,4 @@
-# SpokenFrame V3 architecture
+# SpokenFrame V4 architecture
 
 ## Data flow
 
@@ -16,6 +16,16 @@ Premium provider → Cloudflare Worker → ElevenLabs → MP3
 Standard provider → Web Speech API
         ↓
 Player, synchronized text, resume, local cache
+
+Optional account path:
+
+```text
+Supabase Auth session
+        ↓
+Owner-scoped screenplay metadata + playback + preferences
+        ↓
+Local screenplay record matched by deterministic file fingerprint
+```
 ```
 
 The player never branches by source format. Every parser returns:
@@ -116,6 +126,10 @@ The IndexedDB database retains V1's `scene-reader` name and existing stores. V1/
 
 Per-screenplay state includes normalized content, unit/chunk position, generated-audio position, playback speed, Audio Quality, character-name preference, and Cast assignments. UI changes update in-memory state immediately and debounce IndexedDB writes.
 
+Signed-in state is also mapped to three owner-scoped Supabase tables: `screenplays`, `playback_states`, and `screenplay_settings`. Row Level Security derives the caller from the authenticated JWT and rejects anonymous table access. The public browser client never receives a service-role key.
+
+Batch 2 does not put screenplay files or normalized screenplay text in Postgres. A second device can see library metadata and reconnect after the same file is re-uploaded. Authenticated private R2 screenplay/audio storage is reserved for Batch 3.
+
 ## Worker security boundary
 
 Routes:
@@ -134,7 +148,7 @@ CORS is not authentication. A public version should add authentication, usage al
 
 - GitHub Pages serves the static repository root.
 - Cloudflare deploys only `worker/`.
-- `js/config.js` contains the public Worker URL.
+- `js/config.js` contains the public Worker URL plus the public Supabase URL/publishable key.
 - The allowlist uses the GitHub Pages origin (`https://rbc281.github.io`), not a repository path.
 
 ## Adding another provider

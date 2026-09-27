@@ -13,10 +13,23 @@ const voices = [
 const spoken = [];
 const fakeSpeech = { speaking: false, cancelCount: 0, getVoices: () => voices, addEventListener() {}, removeEventListener() {}, speak(utterance) { this.speaking = true; spoken.push(utterance); }, cancel() { this.speaking = false; this.cancelCount += 1; } };
 class FakeUtterance { constructor(text) { this.text = text; } }
+const fakeAccountClient = {
+  auth: {
+    async getSession() { return { data: { session: null }, error: null }; },
+    onAuthStateChange() { return { data: { subscription: { unsubscribe() {} } } }; },
+    async signUp({ email }) { return { data: { user: { id: "user-1", email }, session: null }, error: null }; },
+    async signInWithPassword() { return { data: null, error: { status: 400, message: "Invalid login credentials" } }; },
+    async resetPasswordForEmail() { return { error: null }; },
+    async updateUser() { return { error: null }; },
+    async signOut() { return { error: null }; }
+  },
+  from() { return {}; }
+};
 
 for (const [name, value] of Object.entries({ window, document, navigator: window.navigator, localStorage: window.localStorage, indexedDB, crypto: webcrypto, DOMParser: window.DOMParser, SpeechSynthesisUtterance: FakeUtterance, File: window.File, Event: window.Event })) {
   Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
 }
+Object.defineProperty(globalThis, "supabase", { configurable: true, writable: true, value: { createClient: () => fakeAccountClient } });
 Object.defineProperty(window, "indexedDB", { value: indexedDB }); Object.defineProperty(window, "speechSynthesis", { value: fakeSpeech });
 if (!window.HTMLElement.prototype.scrollIntoView) window.HTMLElement.prototype.scrollIntoView = () => {};
 
@@ -38,6 +51,15 @@ await test("starts with SpokenFrame's focused import experience", () => {
   check(document.querySelector("#landing-title").textContent.includes("Your Screenplay."), "Headline missing");
   check(document.body.textContent.includes("Final Draft (.fdx) recommended"), "Preferred format missing");
   check(document.querySelector("#narration-toggle") === null, "Narration toggle still exists");
+});
+await test("guest listening remains immediate and account setup is optional", () => {
+  check(document.querySelector("#account-context-title").textContent === "Listening as Guest", "Guest state missing");
+  document.querySelector("#account-button").click();
+  check(!document.querySelector("#account-modal").hidden, "Account modal did not open");
+  check(document.querySelector("#account-submit").textContent === "Sign in", "Sign-in form missing");
+  document.querySelector("#account-mode-button").click();
+  check(document.querySelector("#account-submit").textContent === "Create account", "Create-account mode missing");
+  document.querySelector("#close-account-button").click();
 });
 await test("imports FDX into the synchronized player", async () => {
   await upload(fdx, "passenger.fdx");
