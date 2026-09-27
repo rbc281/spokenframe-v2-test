@@ -179,3 +179,20 @@ No external setup is required for Batch 1.
 - Before inviting a larger beta: a production email delivery configuration for reliable account messages may be needed, depending on Supabase's current beta limits.
 
 Each service should be configured only when its batch begins so Roger receives one short dashboard task at a time.
+
+## Batch 2 credential-independent preparation
+
+While the Supabase project is pending, the repository now contains an additive SQL migration for account-owned library metadata, playback state, and screenplay settings. Every table has row-level security, authenticated-owner policies, anonymous-access revocation, and cascading ownership constraints.
+
+`js/account/library-model.js` is the data boundary between existing local V3 records and future cloud rows. It deliberately maps only metadata, playback state, and settings; it never places normalized screenplay content into the library metadata request. Private screenplay content remains a Batch 3 R2 responsibility.
+
+Existing V3 records will be migrated safely:
+
+1. Keep the current IndexedDB record untouched.
+2. Use its SHA-256 file fingerprint to deduplicate per account.
+3. Create account-owned metadata only after the user explicitly signs in and saves the screenplay.
+4. Keep playback usable from the local record on the original device.
+5. Add private normalized screenplay storage in Batch 3 before promising playback on a second device.
+6. Never clear the V3 database automatically; remove local copies only through a future explicit user action.
+
+Until Batch 3, another signed-in device may see library metadata but cannot truthfully play a screenplay whose private content has not yet been synchronized.
