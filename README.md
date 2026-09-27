@@ -10,7 +10,12 @@ V3 adds a sharper black, warm-white, and marker-yellow identity; lower-cost Prem
 
 - New to deployment? Follow the [Beginner Deployment Guide](docs/BEGINNER-DEPLOYMENT.md).
 - For the system design, security boundary, caching, and developer workflow, read [Architecture](docs/ARCHITECTURE.md).
+- For the committed V4 public-beta plan and Android lock-screen audit, read [V4 Batch 1 Audit](docs/V4-BATCH-1-AUDIT.md).
 - After deployment, use the [Real-Device QA Checklist](docs/REAL-DEVICE-QA.md).
+
+## V4 public-beta checkpoint
+
+Batch 1 is complete as an architecture and safety checkpoint. It does not change V3 playback or open Premium Audio to the public. Accounts, private cloud storage, and payments will be added in separate tested batches. Premium must remain a personal beta until the Worker verifies an authenticated screenplay owner and a paid entitlement.
 
 ## What V3 does
 
