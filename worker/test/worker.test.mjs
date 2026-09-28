@@ -205,7 +205,7 @@ function billingEnvironment(bucket = new FakeR2()) {
     ...privateEnvironment(bucket),
     STRIPE_SECRET_KEY: "stripe-test-key",
     STRIPE_WEBHOOK_SECRET: "webhook-test-key",
-    SUPABASE_SERVICE_ROLE_KEY: "supabase-server-test-key",
+    SUPABASE_SECRET_KEY: "sb_secret_supabase-server-test-key",
     PUBLIC_APP_URL: "https://user.github.io/spokenframe"
   };
 }
@@ -213,13 +213,17 @@ function billingEnvironment(bucket = new FakeR2()) {
 test("creates one-time checkout from the server-owned screenplay page count", async () => {
   const originalFetch = globalThis.fetch;
   let stripeForm;
+  let supabaseServiceHeaders;
   globalThis.fetch = async (url, init = {}) => {
     const value = String(url);
     if (value.endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: "user-1", email: "reader@example.com" }), { status: 200, headers: { "Content-Type": "application/json" } });
     if (value.includes("/rest/v1/screenplays?")) {
       return new Response(JSON.stringify([{ id: screenplayId, client_fingerprint: fingerprint, title: "PASSENGER", page_count: 120, spoken_character_count: 100_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (value.includes("/rest/v1/premium_entitlements?")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/premium_entitlements?")) {
+      supabaseServiceHeaders = init.headers;
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (value === "https://api.stripe.com/v1/checkout/sessions") {
       stripeForm = new URLSearchParams(init.body);
       return new Response(JSON.stringify({ id: "checkout-session", url: "https://checkout.example/session" }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -232,6 +236,8 @@ test("creates one-time checkout from the server-owned screenplay page count", as
     assert.equal((await response.json()).checkoutUrl, "https://checkout.example/session");
     assert.equal(stripeForm.get("line_items[0][price_data][unit_amount]"), "1500");
     assert.equal(stripeForm.get("metadata[screenplay_id]"), screenplayId);
+    assert.equal(supabaseServiceHeaders.apikey, "sb_secret_supabase-server-test-key");
+    assert.equal("Authorization" in supabaseServiceHeaders, false);
   } finally { globalThis.fetch = originalFetch; }
 });
 

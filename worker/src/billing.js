@@ -19,8 +19,21 @@ function appUrl(env) {
 
 function serviceConfig(env) {
   const url = String(env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
-  const key = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  // Prefer Supabase's current opaque server key. Keep the legacy variable as a
+  // migration fallback for existing deployments that still use a JWT-based
+  // service_role key.
+  const key = String(env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   return /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) && key ? { url, key } : null;
+}
+
+function serviceKeyHeaders(key) {
+  // New sb_secret_* keys are opaque and must only be sent in the apikey header.
+  // Legacy service_role keys are JWTs and also require Authorization.
+  const looksLikeLegacyJwt = /^eyJ[^.]*\.[^.]+\.[^.]+$/.test(key);
+  return {
+    apikey: key,
+    ...(looksLikeLegacyJwt ? { Authorization: `Bearer ${key}` } : {})
+  };
 }
 
 export function billingReady(env) {
@@ -42,8 +55,7 @@ async function serviceRequest(env, path, init = {}) {
   return fetch(`${config.url}/rest/v1/${path}`, {
     ...init,
     headers: {
-      apikey: config.key,
-      Authorization: `Bearer ${config.key}`,
+      ...serviceKeyHeaders(config.key),
       Accept: "application/json",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
       ...(init.headers || {})

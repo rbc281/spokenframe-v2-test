@@ -33,17 +33,17 @@ The Worker calculates the amount from the server-owned screenplay page count. It
 
 ## Security boundary
 
-The browser cannot create payments, entitlements, usage events, or allowance changes. Supabase Row Level Security allows an authenticated owner to read their own payment and entitlement status only. Stripe webhook processing and generation accounting require the Supabase service-role secret held by Cloudflare.
+The browser cannot create payments, entitlements, usage events, or allowance changes. Supabase Row Level Security allows an authenticated owner to read their own payment and entitlement status only. Stripe webhook processing and generation accounting require a Supabase server secret held by Cloudflare. The Worker prefers the current `sb_secret_*` key through `SUPABASE_SECRET_KEY` and retains `SUPABASE_SERVICE_ROLE_KEY` only as a legacy JWT fallback.
 
 The webhook endpoint does not rely on CORS or an Origin header. It accepts only a valid Stripe signature over the exact raw request body. Duplicate webhook IDs are recorded and treated idempotently.
 
-No Stripe key, webhook signing secret, Supabase service-role key, ElevenLabs key, or test credential is committed.
+No Stripe key, webhook signing secret, Supabase server key, ElevenLabs key, or test credential is committed.
 
 ## Activation sequence (not yet performed)
 
 1. Create the Stripe sandbox.
 2. Apply the Batch 4 Supabase migration.
-3. Store `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` as encrypted Cloudflare Worker secrets.
+3. Store `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SUPABASE_SECRET_KEY` as encrypted Cloudflare Worker secrets.
 4. Deploy the Worker and register its `/v1/billing/webhook` URL in the Stripe sandbox.
 5. Connect the frontend upgrade flow and verify sandbox checkout.
 6. Confirm unpaid denial, paid generation, cache reuse, allowance accounting, and webhook idempotency.
