@@ -6,12 +6,13 @@ import { SupabaseLibraryRepository } from "./account/library-repository.js";
 import { applyCloudPreferences } from "./account/library-model.js";
 import { PrivateCloudStorage } from "./account/private-cloud-storage.js";
 import { createSpokenFrameSupabaseClient } from "./account/supabase-client.js";
+import { PremiumAccessService } from "./billing/premium-access.js";
+import { screenplayPageDetails } from "./billing/screenplay-page-count.js";
 import { SPOKENFRAME_CONFIG } from "./config.js";
 import { parseScreenplay, ScreenplayParseError, supportedFile } from "./parsers/parser-registry.js";
 import {
   SPEECH_NORMALIZATION_VERSION,
   adjacentSceneUnit,
-  estimatePremiumCredits,
   estimateRemainingSeconds,
   progressPercent,
   progressSummary,
@@ -21,8 +22,24 @@ import {
 import { BrowserTtsProvider } from "./tts/browser-provider.js";
 import { ElevenLabsProvider, PremiumTtsError } from "./tts/elevenlabs-provider.js";
 import { audioCacheKey, hashFile, loadLastScreenplay, loadScreenplay, saveScreenplay } from "./storage.js";
+import { premiumPrice } from "../shared/premium-pricing.js";
 
 const $ = (selector) => document.querySelector(selector);
+const PREMIUM_INTENT_KEY = "spokenframe-premium-intent";
+
+function savedPremiumIntent() {
+  try { return window.sessionStorage.getItem(PREMIUM_INTENT_KEY) === "true"; }
+  catch { return false; }
+}
+
+function setPendingPremiumIntent(value) {
+  state.pendingPremiumIntent = value === true;
+  try {
+    if (state.pendingPremiumIntent) window.sessionStorage.setItem(PREMIUM_INTENT_KEY, "true");
+    else window.sessionStorage.removeItem(PREMIUM_INTENT_KEY);
+  } catch { /* Checkout still works when session storage is unavailable. */ }
+}
+
 const elements = {
   landing: $("#landing-view"), player: $("#player-view"), headerActions: $("#player-header-actions"), fileInput: $("#file-input"), replaceFileInput: $("#replace-file-input"), dropZone: $("#drop-zone"),
   uploadTitle: $("#upload-title"), uploadButtonLabel: $("#upload-button-label"), resumeCard: $("#resume-card"), resumeTitle: $("#resume-title"), resumeDetail: $("#resume-detail"), resumeProgress: $("#resume-progress"), resumeButton: $("#resume-button"), resumeFormat: $("#resume-format"),
@@ -36,13 +53,18 @@ const elements = {
   castButton: $("#cast-button"), castModal: $("#cast-modal"), voiceList: $("#voice-list"), closeCastButton: $("#close-cast-button"), doneCastButton: $("#done-cast-button"), autoAssignButton: $("#auto-assign-button"),
   providerOptions: [...document.querySelectorAll('input[name="audio-quality"]')], readCharacterNames: $("#read-character-names"), premiumEstimate: $("#premium-estimate"),
   reviewModal: $("#review-modal"), reviewMessage: $("#review-message"), reviewCancel: $("#review-cancel"), reviewContinue: $("#review-continue"),
-  fallbackModal: $("#fallback-modal"), fallbackMessage: $("#fallback-message"), fallbackDevice: $("#fallback-device"), fallbackRetry: $("#fallback-retry")
+  fallbackModal: $("#fallback-modal"), fallbackMessage: $("#fallback-message"), fallbackDevice: $("#fallback-device"), fallbackRetry: $("#fallback-retry"),
+  premiumModal: $("#premium-modal"), premiumModalTitle: $("#premium-modal-title"), premiumModalCopy: $("#premium-modal-copy"), premiumPrice: $("#premium-price"), premiumMessage: $("#premium-message"), premiumUnlockButton: $("#premium-unlock-button"), premiumStandardButton: $("#premium-standard-button"), closePremiumButton: $("#close-premium-button")
 };
 
 const supabaseClient = createSpokenFrameSupabaseClient(SPOKENFRAME_CONFIG);
 const accountSession = supabaseClient ? new AccountSessionService(supabaseClient, { redirectUrl: SPOKENFRAME_CONFIG.accountRedirectUrl }) : null;
 const accountLibrary = accountSession ? new SupabaseLibraryRepository(supabaseClient, accountSession) : null;
 const privateCloudStorage = accountSession ? new PrivateCloudStorage({
+  workerUrl: SPOKENFRAME_CONFIG.workerUrl,
+  tokenProvider: () => accountSession.accessToken()
+}) : null;
+const premiumAccess = accountSession ? new PremiumAccessService({
   workerUrl: SPOKENFRAME_CONFIG.workerUrl,
   tokenProvider: () => accountSession.accessToken()
 }) : null;
@@ -57,13 +79,14 @@ const audioPlayer = canUseAudio ? new AudioPlayer(new AudioConstructor()) : null
 const previewPlayer = canUseAudio ? new AudioPlayer(new AudioConstructor()) : null;
 const audioCache = new AudioCache();
 const state = {
-  record: null, chunks: [], chunkIndex: 0, index: 0, isPlaying: false, isBuffering: false, rate: 1, providerId: "browser",
+  record: null, chunks: [], chunkIndex: 0, index: 0, isPlaying: false, isBuffering: false, rate: 1, providerId: "browser", preferredProvider: "browser",
   readCharacterNames: false, voices: { browser: [], elevenlabs: [] }, premiumReady: false, voiceAssignments: {}, chunkPosition: 0,
   controllers: new Map(), chunkDurations: new Map(), saveTimer: null, lastFocused: null, pendingRecord: null,
   playbackToken: 0, previewToken: 0, previewController: null, previewButton: null,
   accountStatus: accountSession ? "loading" : "unavailable", accountUser: null, accountMode: "signin", accountLibrary: [], accountRequestBusy: false,
   cloudSaveTimer: null, cloudSaveSignature: "", cloudSaveRunning: false, cloudSavePending: false,
-  cloudContentReady: new Set()
+  cloudContentReady: new Set(), premiumEntitled: false, premiumAccessLoaded: false,
+  premiumCheckoutAvailable: false, premiumRequestBusy: false, pendingPremiumIntent: savedPremiumIntent()
 };
 
 function showToast(message, duration = 4200) {
@@ -166,18 +189,24 @@ function renderLibrary() {
   state.accountLibrary.forEach((entry) => {
     const progress = Math.max(0, Math.min(100, Number(entry.playback?.progress_percent) || 0));
     const scene = entry.playback?.current_scene || "Ready to begin";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "library-item";
-    button.setAttribute("aria-label", `Continue ${entry.title}`);
+    const card = document.createElement("article"); card.className = "library-item";
+    const button = document.createElement("button"); button.type = "button"; button.className = "library-main"; button.setAttribute("aria-label", `Continue ${entry.title}`);
     const format = document.createElement("span"); format.className = "library-format"; format.textContent = String(entry.source_format || "script").toUpperCase();
     const copy = document.createElement("span"); copy.className = "library-copy";
     const title = document.createElement("strong"); title.textContent = entry.title;
     const detail = document.createElement("span"); detail.textContent = `${progress}% · ${scene}`;
-    const action = document.createElement("span"); action.className = "library-action"; action.textContent = "Continue";
-    copy.append(title, detail); button.append(format, copy, action);
+    const status = document.createElement("span"); status.className = `library-status${entry.premium ? " is-premium" : ""}`; status.textContent = entry.premium ? "Premium" : "Standard";
+    copy.append(title, detail, status); button.append(format, copy);
     button.addEventListener("click", () => openLibraryEntry(entry));
-    fragment.appendChild(button);
+    const actions = document.createElement("span"); actions.className = "library-actions";
+    const continueLabel = document.createElement("span"); continueLabel.className = "library-action"; continueLabel.textContent = "Continue"; actions.appendChild(continueLabel);
+    if (!entry.premium) {
+      const upgrade = document.createElement("button"); upgrade.type = "button"; upgrade.className = "library-upgrade";
+      upgrade.textContent = `Upgrade · ${premiumPrice(entry.page_count).displayAmount}`;
+      upgrade.addEventListener("click", async () => { if (await openLibraryEntry(entry)) openPremiumModal(); });
+      actions.appendChild(upgrade);
+    }
+    card.append(button, actions); fragment.appendChild(card);
   });
   elements.libraryList.appendChild(fragment);
 }
@@ -234,9 +263,12 @@ async function openLibraryEntry(entry) {
     }
     local.accountLinks = { ...(local.accountLinks || {}), [state.accountUser.id]: entry.id };
     await openRecord(await hydrateRecordFromAccount(local));
+    await refreshPremiumAccess({ restorePreference: true });
+    return true;
   } catch (error) {
     console.warn("Library screenplay could not be opened:", error);
     showToast(error?.message || "That screenplay couldn’t be opened from your private library.", 6500);
+    return false;
   }
 }
 
@@ -275,6 +307,7 @@ async function syncCurrentRecord({ includeMetadata = false, refreshLibrary = fal
     }
     state.cloudSaveSignature = JSON.stringify({ id: record.id, ownerId, screenplayId: id, preferences: currentPreferences() });
     if (refreshLibrary || !screenplayId) await loadAccountLibrary({ quiet: true });
+    return id;
   } catch (error) {
     console.warn("Account library could not be updated:", { code: error?.code, message: error?.message });
     showToast(error?.message || "Your account library couldn’t be updated.");
@@ -285,6 +318,13 @@ async function syncCurrentRecord({ includeMetadata = false, refreshLibrary = fal
       queueCloudSave(250);
     }
   }
+}
+
+async function ensureAccountScreenplay() {
+  if (state.accountStatus !== "authenticated" || !state.record) return "";
+  let screenplayId = accountScreenplayId();
+  if (!screenplayId) screenplayId = await syncCurrentRecord({ includeMetadata: true, refreshLibrary: true });
+  return screenplayId || accountScreenplayId();
 }
 
 function queueCloudSave(delay = 2800) {
@@ -339,10 +379,24 @@ async function handleSessionState(snapshot) {
   renderAccountState();
   if (snapshot.status === "authenticated") {
     await loadAccountLibrary({ quiet: true });
-    if (state.record) syncCurrentRecord({ includeMetadata: previousUserId !== snapshot.user.id, refreshLibrary: previousUserId !== snapshot.user.id });
+    if (state.record) {
+      await syncCurrentRecord({ includeMetadata: previousUserId !== snapshot.user.id, refreshLibrary: previousUserId !== snapshot.user.id });
+      await refreshPremiumAccess({ restorePreference: true });
+      if (state.pendingPremiumIntent) openPremiumModal();
+    }
   } else {
     state.accountLibrary = [];
     state.cloudContentReady.clear();
+    state.premiumEntitled = false;
+    state.premiumAccessLoaded = false;
+    state.premiumCheckoutAvailable = false;
+    if (state.providerId === "elevenlabs") {
+      state.providerId = "browser";
+      state.chunkPosition = 0;
+      ensureDefaultAssignments();
+      syncProviderControls();
+      updateNowPlaying();
+    }
     renderLibrary();
   }
 }
@@ -376,13 +430,19 @@ async function initializeAccounts() {
 }
 
 function defaultPreferences() {
-  return { currentIndex: 0, chunkIndex: 0, chunkPosition: 0, rate: 1, provider: state.premiumReady ? "elevenlabs" : "browser", readCharacterNames: false, voiceAssignments: {} };
+  return { currentIndex: 0, chunkIndex: 0, chunkPosition: 0, rate: 1, provider: "browser", readCharacterNames: false, voiceAssignments: {} };
 }
 function currentChunk() { return state.chunks[state.chunkIndex]; }
 function spokenChunkText(chunk = currentChunk()) { return spokenTextForChunk(chunk, { readCharacterNames: state.readCharacterNames }); }
 function assignmentFor(roleId) {
+  if (state.providerId === "browser") {
+    const standard = state.voiceAssignments.NARRATOR;
+    if (typeof standard === "string" && state.voices.browser.some((voice) => voice.id === standard)) return { provider: "browser", voiceId: standard };
+    if (standard?.provider === "browser" && state.voices.browser.some((voice) => voice.id === standard.voiceId)) return standard;
+    const voice = state.voices.browser[0];
+    return { provider: "browser", voiceId: voice?.id || "" };
+  }
   const saved = state.voiceAssignments[roleId];
-  if (typeof saved === "string" && state.providerId === "browser") return { provider: "browser", voiceId: saved };
   if (saved?.provider === state.providerId) return saved;
   const voice = state.voices[state.providerId][0];
   return { provider: state.providerId, voiceId: voice?.id || "" };
@@ -394,6 +454,11 @@ function ensureDefaultAssignments(force = false, varied = false) {
   if (!pool.length) return;
   const roles = ["NARRATOR", ...state.record.script.characters.map((character) => character.id)];
   const first = pool[0];
+  if (state.providerId === "browser") {
+    const standardVoiceId = (!force && assignmentFor("NARRATOR").voiceId) || first.id;
+    roles.forEach((roleId) => { state.voiceAssignments[roleId] = { provider: "browser", voiceId: standardVoiceId }; });
+    return;
+  }
   roles.forEach((roleId, index) => {
     const existing = state.voiceAssignments[roleId];
     const valid = existing && existing.provider === state.providerId && pool.some((voice) => voice.id === existing.voiceId);
@@ -523,6 +588,7 @@ function stopPreview() {
 
 async function playPremium(token) {
   if (!state.premiumReady || !audioPlayer) throw new PremiumTtsError("unavailable", "Premium audio is temporarily unavailable.");
+  if (!state.premiumEntitled) throw new PremiumTtsError("premium_required", "Premium Audio has not been unlocked for this screenplay.", 402);
   setBuffering(true);
   const generated = await getPremiumAudio(state.chunkIndex, { foreground: true });
   if (token !== state.playbackToken || !state.isPlaying) return;
@@ -621,7 +687,9 @@ async function openRecord(record) {
   state.index = Number.isInteger(preferences.currentIndex) ? Math.min(preferences.currentIndex, record.script.units.length - 1) : 0;
   state.chunkIndex = Number.isInteger(preferences.chunkIndex) && state.chunks[preferences.chunkIndex]?.unitIndices.includes(state.index) ? preferences.chunkIndex : chunkIndexForUnit(state.chunks, state.index);
   state.chunkPosition = Number(preferences.chunkPosition) || 0; state.rate = Number(preferences.rate) || 1;
-  state.providerId = preferences.provider === "elevenlabs" && state.premiumReady ? "elevenlabs" : "browser";
+  state.preferredProvider = preferences.provider === "elevenlabs" ? "elevenlabs" : "browser";
+  state.providerId = "browser";
+  state.premiumEntitled = false; state.premiumAccessLoaded = false; state.premiumCheckoutAvailable = false;
   state.readCharacterNames = preferences.readCharacterNames === true; state.voiceAssignments = preferences.voiceAssignments || {}; ensureDefaultAssignments();
   renderScript(); elements.landing.hidden = true; elements.player.hidden = false; elements.headerActions.hidden = false; updateNowPlaying({ scroll: true }); queueSave();
 }
@@ -630,7 +698,10 @@ async function commitImport(record) {
   const hydrated = await hydrateRecordFromAccount(record);
   await openRecord(hydrated);
   await saveState();
-  if (state.accountStatus === "authenticated") await syncCurrentRecord({ includeMetadata: true, refreshLibrary: true });
+  if (state.accountStatus === "authenticated") {
+    await syncCurrentRecord({ includeMetadata: true, refreshLibrary: true });
+    await refreshPremiumAccess({ restorePreference: true });
+  }
   showToast(`${record.script.title} is ready.`);
 }
 
@@ -669,14 +740,26 @@ function invalidateRoleDurations(roleId) {
 
 function renderVoiceList() {
   elements.voiceList.replaceChildren();
-  const roles = [{ id: "NARRATOR", name: "Narrator", detail: "Scenes, action & transitions" }, ...sortedCastCharacters(state.record.script).map((character) => ({ ...character, detail: "Character" }))];
+  const premiumCast = state.providerId === "elevenlabs" && state.premiumEntitled;
+  elements.autoAssignButton.hidden = !premiumCast;
+  const roles = premiumCast
+    ? [{ id: "NARRATOR", name: "Narrator", detail: "Scenes, action & transitions" }, ...sortedCastCharacters(state.record.script).map((character) => ({ ...character, detail: "Character" }))]
+    : [{ id: "NARRATOR", name: "Standard voice", detail: "Used for narrator and every character" }];
   const fragment = document.createDocumentFragment();
   roles.forEach((role) => {
     const row = document.createElement("div"); row.className = "voice-row";
     const identity = document.createElement("div"); identity.className = "voice-identity"; const strong = document.createElement("strong"); strong.textContent = role.name; const detail = document.createElement("span"); detail.textContent = role.detail; identity.append(strong, detail);
     const select = document.createElement("select"); select.setAttribute("aria-label", `${role.name} voice`); select.append(...voiceOptions(assignmentFor(role.id).voiceId));
     select.addEventListener("change", () => {
-      stopPreview(); cancelDistantGeneration(); state.voiceAssignments[role.id] = { provider: state.providerId, voiceId: select.value }; invalidateRoleDurations(role.id); updatePremiumEstimate(); queueSave();
+      stopPreview(); cancelDistantGeneration();
+      if (premiumCast) {
+        state.voiceAssignments[role.id] = { provider: state.providerId, voiceId: select.value }; invalidateRoleDurations(role.id);
+      } else {
+        ["NARRATOR", ...state.record.script.characters.map((character) => character.id)].forEach((roleId) => {
+          state.voiceAssignments[roleId] = { provider: "browser", voiceId: select.value }; invalidateRoleDurations(roleId);
+        });
+      }
+      updatePremiumEstimate(); queueSave();
     });
     const preview = document.createElement("button"); preview.type = "button"; preview.className = "preview-voice"; preview.setAttribute("aria-label", `Preview ${role.name} voice`); preview.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 5 6.5 9H3v6h3.5l4.5 4zM15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/></svg>';
     preview.addEventListener("click", () => previewVoice(select.value, preview)); row.append(identity, select, preview); fragment.appendChild(row);
@@ -710,10 +793,13 @@ async function previewVoice(voiceId, button) {
   }
   const controller = new AbortController(); state.previewController = controller;
   try {
-    const key = await audioCacheKey({ provider: "elevenlabs", model: premiumProvider.model, voiceId, text, settings: { preview: true, normalizationVersion: SPEECH_NORMALIZATION_VERSION } });
+    const screenplayId = accountScreenplayId();
+    if (!state.premiumEntitled || !screenplayId) throw new PremiumTtsError("premium_required", "Premium Audio has not been unlocked for this screenplay.", 402);
+    const cacheSettings = { preview: true, format: "mp3_44100_128", normalizationVersion: SPEECH_NORMALIZATION_VERSION };
+    const key = await audioCacheKey({ provider: "elevenlabs", model: premiumProvider.model, voiceId, text, settings: cacheSettings });
     const entry = await audioCache.getOrCreate(
       key,
-      () => premiumProvider.generateSpeech({ text, voiceId, signal: controller.signal }),
+      () => premiumProvider.generateSpeech({ text, voiceId, signal: controller.signal, screenplayId, cacheKey: key, cacheSettings }),
       { preview: true, model: premiumProvider.model }
     );
     if (token !== state.previewToken) return;
@@ -735,8 +821,125 @@ function syncProviderControls() {
 
 function updatePremiumEstimate() {
   if (!state.record) return;
-  const credits = estimatePremiumCredits(state.chunks, { model: premiumProvider.model, readCharacterNames: state.readCharacterNames });
-  elements.premiumEstimate.querySelector("strong").textContent = `~${credits.toLocaleString()} credits`;
+  const price = premiumPrice(screenplayPageDetails(state.record.script).pageCount);
+  elements.premiumEstimate.querySelector("strong").textContent = `${price.pages} ${price.pages === 1 ? "page" : "pages"} · ${price.displayAmount} one-time`;
+}
+
+function setPremiumMessage(message = "") {
+  elements.premiumMessage.textContent = message;
+  elements.premiumMessage.hidden = !message;
+}
+
+function activatePremiumAudio({ announce = false } = {}) {
+  if (!state.premiumEntitled || !state.premiumReady) return false;
+  state.providerId = "elevenlabs";
+  state.preferredProvider = "elevenlabs";
+  state.chunkPosition = 0;
+  state.chunkDurations.clear();
+  ensureDefaultAssignments();
+  syncProviderControls();
+  if (state.record) {
+    renderVoiceList();
+    updateNowPlaying();
+    queueSave();
+  }
+  if (announce) showToast("Premium Audio is ready for this screenplay.");
+  return true;
+}
+
+async function refreshPremiumAccess({ restorePreference = false, quiet = true } = {}) {
+  state.premiumEntitled = false;
+  state.premiumCheckoutAvailable = false;
+  state.premiumAccessLoaded = false;
+  if (state.accountStatus !== "authenticated" || !premiumAccess || !state.record) return null;
+  const screenplayId = accountScreenplayId();
+  if (!screenplayId) return null;
+  try {
+    const access = await premiumAccess.entitlement(screenplayId);
+    state.premiumEntitled = access.premium === true;
+    state.premiumCheckoutAvailable = access.checkoutAvailable === true;
+    state.premiumAccessLoaded = true;
+    if (state.premiumEntitled && restorePreference && state.preferredProvider === "elevenlabs") activatePremiumAudio();
+    if (!state.premiumEntitled && state.providerId === "elevenlabs") {
+      state.providerId = "browser"; state.preferredProvider = "browser"; ensureDefaultAssignments(); syncProviderControls(); updateNowPlaying(); queueSave();
+    }
+    return access;
+  } catch (error) {
+    console.warn("Premium access could not be checked:", { code: error?.code, message: error?.message });
+    if (!quiet) showToast(error?.message || "Premium purchase information is temporarily unavailable.");
+    return null;
+  }
+}
+
+function openPremiumModal() {
+  if (!state.record) return;
+  if (!elements.castModal.hidden) closeCastModal();
+  state.lastFocused = document.activeElement;
+  setPendingPremiumIntent(true);
+  const price = premiumPrice(screenplayPageDetails(state.record.script).pageCount);
+  elements.premiumPrice.querySelector("strong").textContent = `${price.pages} ${price.pages === 1 ? "page" : "pages"} · Premium Audio ${price.displayAmount}`;
+  elements.premiumPrice.querySelector("span").textContent = "One-time purchase · No subscription";
+  setPremiumMessage();
+  if (state.accountStatus !== "authenticated") {
+    elements.premiumModalTitle.textContent = "Save this screenplay first";
+    elements.premiumModalCopy.textContent = "Create a free account to save this screenplay and unlock Premium Audio.";
+    elements.premiumUnlockButton.textContent = "Create free account";
+  } else if (state.premiumEntitled) {
+    elements.premiumModalTitle.textContent = "Premium Audio is unlocked";
+    elements.premiumModalCopy.textContent = "Natural voices and character casting are ready for this screenplay.";
+    elements.premiumUnlockButton.textContent = "Use Premium Audio";
+  } else {
+    elements.premiumModalTitle.textContent = "Unlock natural voices";
+    elements.premiumModalCopy.textContent = "A one-time purchase for this screenplay. No subscription.";
+    elements.premiumUnlockButton.textContent = "Unlock Premium";
+    if (state.premiumAccessLoaded && !state.premiumCheckoutAvailable) setPremiumMessage("Premium checkout is temporarily unavailable. Standard Audio remains free.");
+  }
+  elements.premiumUnlockButton.disabled = state.premiumRequestBusy;
+  elements.premiumModal.hidden = false;
+  elements.premiumUnlockButton.focus();
+}
+
+function closePremiumModal({ preserveIntent = false } = {}) {
+  if (elements.premiumModal.hidden) return;
+  elements.premiumModal.hidden = true;
+  setPremiumMessage();
+  if (!preserveIntent) setPendingPremiumIntent(false);
+  state.lastFocused?.focus?.();
+}
+
+async function handlePremiumUnlock() {
+  if (state.premiumRequestBusy || !state.record) return;
+  if (state.accountStatus !== "authenticated") {
+    closePremiumModal({ preserveIntent: true });
+    openAccountModal("signup");
+    return;
+  }
+  if (state.premiumEntitled) {
+    closePremiumModal();
+    if (!activatePremiumAudio({ announce: true })) showToast("Premium voices are temporarily unavailable. Standard Audio still works.");
+    return;
+  }
+  state.premiumRequestBusy = true;
+  elements.premiumUnlockButton.disabled = true;
+  elements.premiumUnlockButton.textContent = "Opening secure checkout…";
+  setPremiumMessage();
+  try {
+    const screenplayId = await ensureAccountScreenplay();
+    if (!screenplayId) throw new Error("This screenplay could not be saved to your account yet.");
+    const access = await refreshPremiumAccess({ quiet: false });
+    if (access?.premium) {
+      closePremiumModal(); activatePremiumAudio({ announce: true }); return;
+    }
+    const checkoutUrl = await premiumAccess.startCheckout(screenplayId);
+    window.location.assign(checkoutUrl);
+  } catch (error) {
+    console.warn("Premium checkout could not start:", { code: error?.code, message: error?.message });
+    setPremiumMessage(error?.message || "Premium checkout is temporarily unavailable. Please try again.");
+  } finally {
+    state.premiumRequestBusy = false;
+    elements.premiumUnlockButton.disabled = false;
+    if (!elements.premiumModal.hidden) elements.premiumUnlockButton.textContent = "Unlock Premium";
+  }
 }
 
 function openCastModal() {
@@ -755,7 +958,8 @@ function closeCastModal() {
 function changeProvider(providerId) {
   stopPreview(); cancelDistantGeneration();
   if (providerId === "elevenlabs" && !state.premiumReady) { state.providerId = "browser"; syncProviderControls(); showToast("Premium Audio isn’t available yet."); return; }
-  state.providerId = providerId; state.chunkPosition = 0; state.chunkDurations.clear(); ensureDefaultAssignments(); syncProviderControls(); renderVoiceList(); updateNowPlaying(); updatePremiumEstimate(); queueSave();
+  if (providerId === "elevenlabs" && !state.premiumEntitled) { state.providerId = "browser"; syncProviderControls(); openPremiumModal(); return; }
+  state.providerId = providerId; state.preferredProvider = providerId; state.chunkPosition = 0; state.chunkDurations.clear(); ensureDefaultAssignments(); syncProviderControls(); renderVoiceList(); updateNowPlaying(); updatePremiumEstimate(); queueSave();
 }
 
 function openFallback(error) {
@@ -763,6 +967,48 @@ function openFallback(error) {
   elements.fallbackModal.hidden = false; elements.fallbackRetry.focus();
 }
 function closeFallback() { elements.fallbackModal.hidden = true; }
+
+function clearCheckoutQuery() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("checkout");
+  url.searchParams.delete("screenplay");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+async function handleCheckoutReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const result = params.get("checkout");
+  const screenplayId = params.get("screenplay") || "";
+  if (!result) return;
+  clearCheckoutQuery();
+  if (result === "cancelled") {
+    showToast("Premium checkout was cancelled. Standard Audio is still free.");
+    return;
+  }
+  if (result !== "success") return;
+  if (state.accountStatus !== "authenticated") {
+    setPendingPremiumIntent(true);
+    showToast("Your payment is being confirmed. Sign in to open the screenplay.", 6500);
+    openAccountModal("signin");
+    return;
+  }
+  const entry = state.accountLibrary.find((item) => item.id === screenplayId);
+  if (entry && accountScreenplayId() !== screenplayId) await openLibraryEntry(entry);
+  showToast("Confirming Premium Audio…", 9000);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const access = await refreshPremiumAccess({ quiet: true });
+    if (access?.premium) {
+      setPendingPremiumIntent(false);
+      activatePremiumAudio({ announce: true });
+      await loadAccountLibrary({ quiet: true });
+      return;
+    }
+    if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 900));
+  }
+  setPendingPremiumIntent(true);
+  showToast("Payment received. Premium Audio is still being confirmed; try again in a moment.", 7000);
+  openPremiumModal();
+}
 
 function populateResume(record) {
   const prefs = record.preferences || {};
@@ -818,6 +1064,10 @@ function bindEvents() {
   elements.playButton.addEventListener("click", togglePlayback); elements.previousSceneButton.addEventListener("click", () => moveScene(-1)); elements.nextSceneButton.addEventListener("click", () => moveScene(1));
   elements.backThreeButton.addEventListener("click", () => movePassages(-1)); elements.forwardThreeButton.addEventListener("click", () => movePassages(1)); elements.brandButton.addEventListener("click", showHome);
   elements.castButton.addEventListener("click", openCastModal); elements.closeCastButton.addEventListener("click", closeCastModal); elements.doneCastButton.addEventListener("click", closeCastModal); elements.castModal.addEventListener("click", (event) => { if (event.target === elements.castModal) closeCastModal(); });
+  elements.closePremiumButton.addEventListener("click", () => closePremiumModal());
+  elements.premiumModal.addEventListener("click", (event) => { if (event.target === elements.premiumModal) closePremiumModal(); });
+  elements.premiumStandardButton.addEventListener("click", () => { closePremiumModal(); changeProvider("browser"); });
+  elements.premiumUnlockButton.addEventListener("click", handlePremiumUnlock);
   elements.providerOptions.forEach((option) => option.addEventListener("change", () => { if (option.checked) changeProvider(option.value); }));
   elements.readCharacterNames.addEventListener("change", () => { cancelDistantGeneration(); state.readCharacterNames = elements.readCharacterNames.checked; state.chunkDurations.clear(); updatePremiumEstimate(); updateProgress(); queueSave(); });
   elements.autoAssignButton.addEventListener("click", () => { stopPreview(); cancelDistantGeneration(); ensureDefaultAssignments(true, true); state.chunkDurations.clear(); renderVoiceList(); queueSave(); showToast("Voices automatically assigned."); });
@@ -825,13 +1075,13 @@ function bindEvents() {
   elements.sceneSelect.addEventListener("change", () => jumpToUnit(Number(elements.sceneSelect.value) || 0)); elements.progressSlider.addEventListener("input", () => jumpToUnit(Number(elements.progressSlider.value) || 0));
   elements.scriptPages.addEventListener("click", (event) => { const unit = event.target.closest("[data-index]"); if (unit) jumpToUnit(Number(unit.dataset.index)); });
   elements.reviewCancel.addEventListener("click", () => { state.pendingRecord = null; elements.reviewModal.hidden = true; }); elements.reviewContinue.addEventListener("click", async () => { const record = state.pendingRecord; state.pendingRecord = null; elements.reviewModal.hidden = true; if (record) await commitImport(record); });
-  elements.fallbackRetry.addEventListener("click", () => { closeFallback(); playCurrent(); }); elements.fallbackDevice.addEventListener("click", () => { closeFallback(); state.providerId = "browser"; state.chunkDurations.clear(); ensureDefaultAssignments(); updateNowPlaying(); queueSave(); playCurrent(); });
+  elements.fallbackRetry.addEventListener("click", () => { closeFallback(); playCurrent(); }); elements.fallbackDevice.addEventListener("click", () => { closeFallback(); state.providerId = "browser"; state.preferredProvider = "browser"; state.chunkDurations.clear(); ensureDefaultAssignments(); updateNowPlaying(); queueSave(); playCurrent(); });
   ["dragenter", "dragover"].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.add("is-dragging"); }));
   ["dragleave", "drop"].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.remove("is-dragging"); })); elements.dropZone.addEventListener("drop", (event) => handleFile(event.dataTransfer.files[0]));
   document.addEventListener("keydown", (event) => {
     const interactive = /INPUT|SELECT|TEXTAREA|BUTTON/.test(event.target.tagName);
-    if (event.key === "Escape") { closeAccountModal(); closeCastModal(); closeFallback(); }
-    if (!state.record || interactive || !elements.accountModal.hidden || !elements.castModal.hidden || !elements.fallbackModal.hidden) return;
+    if (event.key === "Escape") { closeAccountModal(); closeCastModal(); closeFallback(); closePremiumModal(); }
+    if (!state.record || interactive || !elements.accountModal.hidden || !elements.castModal.hidden || !elements.fallbackModal.hidden || !elements.premiumModal.hidden) return;
     if (event.code === "Space") { event.preventDefault(); togglePlayback(); }
     if (event.key === "ArrowLeft") { event.preventDefault(); movePassages(-1); }
     if (event.key === "ArrowRight") { event.preventDefault(); movePassages(1); }
@@ -859,9 +1109,19 @@ async function init() {
   await Promise.all([initProviders(), initializeAccounts()]);
   try {
     const last = await loadLastScreenplay();
-    if (last) populateResume(await hydrateRecordFromAccount(last));
+    if (last) {
+      const hydrated = await hydrateRecordFromAccount(last);
+      const returningFromCheckout = new URLSearchParams(window.location.search).has("checkout");
+      if (state.pendingPremiumIntent && state.accountStatus === "authenticated" && !returningFromCheckout) {
+        await openRecord(hydrated);
+        await ensureAccountScreenplay();
+        await refreshPremiumAccess({ restorePreference: true });
+        openPremiumModal();
+      } else populateResume(hydrated);
+    }
   }
   catch (error) { console.warn("Saved screenplay could not be restored:", error); showToast("A saved screenplay could not be restored. You can import it again.", 5000); }
+  await handleCheckoutReturn();
 }
 
 init();

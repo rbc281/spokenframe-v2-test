@@ -160,10 +160,14 @@ export async function handleEntitlement(access, env, cors) {
   if (!billingReady(env)) return json({ premium: false, checkoutAvailable: false }, 200, cors);
   try {
     const entitlement = await activeEntitlement(env, access.screenplay.id, access.user.id);
+    const price = premiumPrice(access.screenplay.page_count);
     return json({
       premium: Boolean(entitlement),
       checkoutAvailable: true,
-      status: entitlement?.status || "standard"
+      status: entitlement?.status || "standard",
+      pages: price.pages,
+      amountCents: price.amountCents,
+      displayAmount: price.displayAmount
     }, 200, cors);
   } catch (error) {
     console.error("Entitlement lookup failed", { name: error?.name, message: error?.message });

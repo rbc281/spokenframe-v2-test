@@ -75,16 +75,14 @@ await test("device playback uses speech normalization and reads action", () => {
   check(document.querySelector("#current-speaker").textContent === "Narrator", "Action is not narrated");
   check(document.querySelector("#now-playing-heading").textContent.startsWith("Traffic glows"), "Action did not follow scene");
 });
-await test("first import gives every role the same predictable voice", () => {
+await test("Standard Audio uses one predictable voice for the whole screenplay", () => {
   document.querySelector("#cast-button").click();
   const values = [...document.querySelectorAll(".voice-row select")].map((select) => select.value);
-  check(values.length === 3, "Cast list should include narrator and two characters");
-  check(new Set(values).size === 1 && values[0] === "local-one", "Voices varied automatically");
+  check(values.length === 1, "Standard Audio should expose one screenplay-wide voice");
+  check(values[0] === "local-one", "The predictable device voice was not selected");
+  check(document.querySelector("#auto-assign-button").hidden, "Standard Audio should not offer multi-character Auto Assign");
 });
-await test("Auto Assign is opt-in and previews own playback", () => {
-  document.querySelector("#auto-assign-button").click();
-  const values = [...document.querySelectorAll(".voice-row select")].map((select) => select.value);
-  check(new Set(values).size > 1, "Auto Assign did not vary voices");
+await test("Standard voice preview owns playback without overlap", () => {
   const before = spoken.length; const cancelBefore = fakeSpeech.cancelCount;
   document.querySelector(".preview-voice").click();
   check(spoken.length === before + 1 && spoken.at(-1)?.text.includes("voice sounds"), "Preview did not speak");
@@ -97,7 +95,7 @@ await test("Auto Assign is opt-in and previews own playback", () => {
 await test("Cast is narrator-first and ordered by dialogue quantity", () => {
   document.querySelector("#cast-button").click();
   const names = [...document.querySelectorAll(".voice-identity strong")].map((element) => element.textContent);
-  check(names.join("|") === "Narrator|EVAN|LENA PARK", `Unexpected Cast order: ${names.join("|")}`);
+  check(names.join("|") === "Standard voice", `Unexpected Standard Audio Cast rows: ${names.join("|")}`);
   check(document.body.textContent.includes("Audio Quality") && document.body.textContent.includes("Premium Audio") && document.body.textContent.includes("Standard Audio"), "V3 audio terminology missing");
   document.querySelector("#done-cast-button").click();
 });
@@ -132,7 +130,7 @@ await test("speed, scenes, highlighting, and resume persist", async () => {
   check(!document.querySelector("#progress-summary").textContent.includes("/"), "Internal unit count is visible");
   document.querySelector("#cast-button").click();
   const savedVoices = [...document.querySelectorAll(".voice-row select")].map((select) => select.value);
-  check(new Set(savedVoices).size > 1, "Voice assignments did not persist");
+  check(savedVoices.length === 1 && savedVoices[0] === "local-one", "Standard voice did not persist");
   check(document.querySelector("#read-character-names").checked, "Character-name preference did not persist after resume");
   document.querySelector("#done-cast-button").click();
 });

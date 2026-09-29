@@ -214,7 +214,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .library-item {
   width: 100%;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
   padding: 12px;
@@ -222,10 +222,22 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
   border-radius: 14px;
   background: var(--surface-2);
   color: var(--text);
-  cursor: pointer;
   text-align: left;
 }
 .library-item:hover { border-color: rgba(244, 200, 66, .45); }
+.library-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
 .library-format {
   width: 48px;
   height: 58px;
@@ -241,7 +253,12 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .library-copy, .library-copy strong, .library-copy span { min-width: 0; display: block; }
 .library-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92rem; }
 .library-copy span { margin-top: 5px; color: var(--muted); font-size: .72rem; }
+.library-copy .library-status { display: inline-block; width: max-content; margin-top: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.055); color: var(--muted); font-size: .59rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.library-copy .library-status.is-premium { background: var(--accent-soft); color: var(--accent-bright); }
+.library-actions { display: grid; justify-items: end; gap: 7px; }
 .library-action { color: var(--accent-bright); font-size: .72rem; font-weight: 760; }
+.library-upgrade { min-height: 34px; padding: 0 10px; border: 1px solid rgba(244, 200, 66, .35); border-radius: 999px; background: transparent; color: var(--accent-bright); cursor: pointer; font-size: .68rem; font-weight: 760; }
+.library-upgrade:hover { background: var(--accent-soft); }
 .library-empty { margin: 6px 0 0; padding: 18px; color: var(--muted); font-size: .82rem; text-align: center; }
 
 .upload-card, .resume-card {
@@ -499,6 +516,15 @@ input[type="range"] { accent-color: var(--accent); width: 100%; cursor: pointer;
 .account-avatar { width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 14px; border-radius: 50%; background: var(--accent); color: #161207; font-weight: 850; }
 .account-profile > strong { display: block; overflow-wrap: anywhere; }
 .account-profile p { margin: 8px auto 20px; max-width: 340px; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.premium-body { padding: 24px 26px 26px; }
+.premium-price { margin: 0; padding: 18px; border: 1px solid rgba(244, 200, 66, .28); border-radius: 15px; background: var(--accent-soft); }
+.premium-price strong, .premium-price span { display: block; }
+.premium-price strong { color: var(--accent-bright); font-size: 1.05rem; letter-spacing: -.02em; }
+.premium-price span { margin-top: 5px; color: var(--muted); font-size: .75rem; }
+.premium-includes { display: grid; gap: 10px; margin: 20px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: .82rem; }
+.premium-includes li { position: relative; padding-left: 23px; }
+.premium-includes li::before { content: "✓"; position: absolute; left: 0; color: var(--accent-bright); font-weight: 850; }
+.premium-message { margin: 18px 0 0; padding: 11px 12px; border-radius: 10px; background: rgba(255, 159, 159, .09); color: #ffd2d2; font-size: .78rem; line-height: 1.45; }
 .voice-row { display: grid; grid-template-columns: minmax(110px, .8fr) minmax(180px, 1.4fr) 44px; align-items: center; gap: 12px; min-height: 70px; border-bottom: 1px solid var(--line); }
 .voice-row:last-child { border: 0; }
 .voice-identity strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
@@ -549,9 +575,11 @@ input[type="range"] { accent-color: var(--accent); width: 100%; cursor: pointer;
   .account-context { align-items: flex-start; gap: 12px; }
   .account-context button { max-width: 92px; text-align: right; }
   .library-section { padding: 18px 14px; }
-  .library-item { grid-template-columns: 40px minmax(0, 1fr); }
+  .library-item { grid-template-columns: minmax(0, 1fr); }
+  .library-main { grid-template-columns: 40px minmax(0, 1fr); }
   .library-format { width: 40px; height: 50px; }
-  .library-action { grid-column: 2; margin-top: -4px; }
+  .library-actions { grid-template-columns: auto auto; align-items: center; justify-content: space-between; width: 100%; padding-left: 53px; }
+  .library-action { margin-top: 0; }
   .upload-card { margin-top: 34px; }
   .resume-card { grid-template-columns: 58px 1fr 48px; gap: 12px; padding: 13px; min-height: 106px; }
   .resume-art { width: 58px; height: 76px; }
@@ -573,6 +601,7 @@ input[type="range"] { accent-color: var(--accent); width: 100%; cursor: pointer;
   .modal-footer { flex-direction: column-reverse; }
   .modal-footer button { width: 100%; }
   .account-body { padding: 22px 18px 25px; }
+  .premium-body { padding: 20px 18px 22px; }
   .account-links { align-items: center; }
 }
 

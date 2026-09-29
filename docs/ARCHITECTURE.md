@@ -62,7 +62,7 @@ The same final speech string powers:
 
 - Standard Audio
 - Premium Audio requests
-- Premium credit estimates
+- deterministic usage accounting
 - deterministic cache identity
 
 This prevents estimates or cached results from drifting away from what is actually heard.
@@ -139,12 +139,21 @@ Routes:
 - `POST /v1/tts`
 - `GET|POST /v1/screenplays/:id/content`
 - `POST /v1/screenplays/:id/audio/:cacheKey`
+- `GET /v1/screenplays/:id/entitlement`
+- `POST /v1/screenplays/:id/checkout`
+- `POST /v1/billing/webhook`
 
 The Worker accepts explicit origins and validates method, content type, declared/actual request size, text length, voice-ID shape, Supabase session, screenplay ownership, and deterministic cache identity. Provider failures become stable public error codes. Browser responses use `no-store`; durable private objects are served only after owner authorization.
 
 `ELEVENLABS_API_KEY` exists only as a Cloudflare secret. `ALLOWED_ORIGINS`, `ELEVENLABS_MODEL_ID`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY` are non-secret variables. The `PRIVATE_MEDIA` binding points to the private `spokenframe-private-media` bucket. The frontend receives only public endpoints/identifiers.
 
-CORS is not authentication. The private routes require a bearer session and owner lookup. Batch 4 must additionally require a paid screenplay entitlement, enforce generation allowance/accounting, and disable anonymous paid generation before public Premium launch.
+CORS is not authentication. The private routes require a bearer session and owner lookup. In enforced mode, uncached Premium generation also requires a paid screenplay entitlement and an atomic generation-allowance reservation. Stripe redirects are never treated as proof of payment; only a verified webhook creates an entitlement.
+
+## Payments and entitlements
+
+The browser displays the deterministic page-based price but never submits an amount. The Worker reads the owner-scoped screenplay page count, calculates the price again, and creates a one-time Stripe Checkout session. Premium belongs to one screenplay, not the whole account.
+
+The webhook verifies Stripe's signature against the exact raw body, checks ownership and the authoritative price, records the payment idempotently, then creates the entitlement. Payment, entitlement, webhook, and generation-accounting writes use a Supabase server secret held only by Cloudflare. Browser roles can read only their own payment and entitlement rows.
 
 ## Deployment
 

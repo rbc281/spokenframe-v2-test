@@ -8,6 +8,7 @@ import {
   premiumPriceCents
 } from "../shared/premium-pricing.js";
 import { createStripeCheckout, verifyStripeWebhook } from "../worker/src/stripe.js";
+import { PremiumAccessError, PremiumAccessService } from "../js/billing/premium-access.js";
 import { estimateScreenplayPages, screenplayPageDetails } from "../js/billing/screenplay-page-count.js";
 import { parseFdx } from "../js/fdx-parser.js";
 import { DOMParser } from "@xmldom/xmldom";
@@ -58,6 +59,25 @@ assert.equal(form.get("customer_email"), "roger@example.com");
 assert.equal(form.has("api_key"), false);
 console.log("✓ Checkout request uses only the server-calculated one-time price and safe metadata");
 
+const accessRequests = [];
+const premiumAccess = new PremiumAccessService({
+  workerUrl: "https://worker.example/",
+  tokenProvider: async () => "signed-user-token",
+  fetchImpl: async (url, init = {}) => {
+    accessRequests.push({ url, init });
+    if (url.endsWith("/entitlement")) return new Response(JSON.stringify({ premium: false, checkoutAvailable: true, pages: 120, displayAmount: "$15" }), { status: 200 });
+    return new Response(JSON.stringify({ checkoutUrl: "https://checkout.stripe.com/c/pay/test-session" }), { status: 200 });
+  }
+});
+assert.equal((await premiumAccess.entitlement("screenplay-1")).displayAmount, "$15");
+assert.equal(await premiumAccess.startCheckout("screenplay-1"), "https://checkout.stripe.com/c/pay/test-session");
+assert(accessRequests.every(({ init }) => init.headers.Authorization === "Bearer signed-user-token"));
+await assert.rejects(
+  () => new PremiumAccessService({ workerUrl: "https://worker.example", tokenProvider: async () => "token", fetchImpl: async () => new Response(JSON.stringify({ checkoutUrl: "https://attacker.example" }), { status: 200 }) }).startCheckout("screenplay-1"),
+  (error) => error instanceof PremiumAccessError && error.code === "checkout_unavailable"
+);
+console.log("✓ Browser checkout client requires an authenticated token and a Stripe-hosted redirect");
+
 const payload = JSON.stringify({ id: "evt_test_123", type: "checkout.session.completed" });
 const timestamp = 1_800_000_000;
 const webhookSecret = "webhook-test-key";
@@ -76,3 +96,9 @@ assert.match(migration, /owners can read their Premium entitlements/i);
 assert.match(migration, /grant select on public\.premium_entitlements to authenticated/i);
 assert.doesNotMatch(migration, /sk_(?:live|test)_|whsec_|sb_secret_|service_role\s*=/i);
 console.log("✓ Billing migration keeps payment proof and usage writes server-owned and contains no credentials");
+
+const hardening = await fs.readFile(new URL("../supabase/migrations/202609290001_v4_database_hardening.sql", import.meta.url), "utf8");
+assert.match(hardening, /revoke execute on function public\.rls_auto_enable\(\) from public, anon, authenticated/i);
+assert.match(hardening, /premium_payments_screenplay_owner_idx/i);
+assert.doesNotMatch(hardening, /sk_(?:live|test)_|whsec_|sb_secret_/i);
+console.log("✓ Database hardening removes public helper execution and covers owner foreign keys");

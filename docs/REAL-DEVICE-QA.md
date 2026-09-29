@@ -7,7 +7,7 @@ Run this on the V4 beta GitHub Pages URL before considering deployment complete.
 - [ ] Sign in, upload a screenplay, return Home, and confirm it appears in the library.
 - [ ] On a second browser/device, sign in with the same account and select that library entry without re-uploading the file.
 - [ ] Confirm the screenplay opens with the saved position, speed, Audio Quality, Read Character Names state, and Cast assignments.
-- [ ] Generate one short Premium Audio passage on the first device, then play the identical passage on the second device and confirm it starts from the private cache without a second provider generation.
+- [ ] For a screenplay already unlocked in the Stripe sandbox, generate one short Premium Audio passage on the first device, then play the identical passage on the second device and confirm it starts from the private cache without a second provider generation.
 - [ ] Sign out and confirm the private library disappears while guest import remains available.
 
 ## Import and reading
@@ -21,18 +21,29 @@ Run this on the V4 beta GitHub Pages URL before considering deployment complete.
 
 ## Cast and audio
 
-- [ ] On a new import, Narrator and every character initially show the same voice.
-- [ ] Confirm Narrator is first and the characters with the most dialogue passages appear earlier in the single Cast list.
+- [ ] On a new import, Standard Audio shows one device voice used for the entire screenplay.
+- [ ] After Premium is unlocked, confirm Narrator is first and the characters with the most dialogue passages appear earlier in the single Cast list.
 - [ ] Confirm the choices are named **Premium Audio** and **Standard Audio** and no model/provider terminology appears in the player.
 - [ ] Change one character's voice, preview it, close Cast, reopen Cast, and confirm it was saved.
 - [ ] Start screenplay playback, open Cast, and preview two voices. Confirm the screenplay pauses, previews never overlap, closing Cast stops the preview, and playback does not restart by itself.
 - [ ] Tap **Auto Assign Voices** and confirm voices vary only after that tap.
 - [ ] Turn **Read character names** on and confirm the next dialogue says the name first. Turn it off and confirm names are skipped.
-- [ ] Confirm the Premium Audio estimate changes when character-name reading changes.
+- [ ] Confirm the Premium offer shows screenplay pages and the correct one-time price, without provider credits or tokens.
 - [ ] Play premium audio, pause, resume, change speed, use Previous/Next Scene, Back/Forward 3, and jump from the scene menu.
 - [ ] Replay the same passage and confirm it starts faster from cache.
 - [ ] Turn on airplane mode after the next passage has buffered. Confirm the cached/current audio behaves sensibly and a later uncached passage shows a friendly error.
 - [ ] Choose **Use Standard Audio** in the premium error message and confirm fallback is explicit.
+
+## Stripe sandbox payment — required before enabling enforcement
+
+- [ ] Sign in and upload a screenplay so it appears in the private library.
+- [ ] Open Cast, choose **Premium Audio**, and confirm the displayed page count and price match the pricing table.
+- [ ] Select **Unlock Premium** and confirm the hosted Stripe sandbox checkout opens.
+- [ ] Complete the checkout with Stripe's sandbox test card, not a real card.
+- [ ] Confirm SpokenFrame reopens the same screenplay and says Premium Audio is ready.
+- [ ] Return Home and confirm that screenplay is labeled **Premium** while another unpaid screenplay remains **Standard**.
+- [ ] Generate one very short passage, replay it, and confirm replay does not create another provider request.
+- [ ] In Stripe, confirm the webhook delivery returned HTTP 200. In Supabase, confirm exactly one payment and one active entitlement exist for the screenplay.
 
 ## Resume
 
@@ -59,4 +70,4 @@ Run this on the V4 beta GitHub Pages URL before considering deployment complete.
 - [ ] Tab through the desktop interface with a keyboard; focus is always visible.
 - [ ] If your device has Reduce Motion enabled, scrolling/transitions are restrained.
 
-Do not consider V4 ready for public beta until account storage, import, Premium Audio, resume, Android lock-screen, payment entitlement, and public-email rows pass. Payment entitlement and public email remain later release gates after Batch 3.
+Do not consider V4 ready for public beta until account storage, import, Standard Audio, paid Premium Audio, resume, Android lock-screen, payment entitlement, and public-email tests pass. Keep `PREMIUM_ENTITLEMENTS_REQUIRED=false` until the Stripe sandbox section passes completely.

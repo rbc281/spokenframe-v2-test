@@ -171,7 +171,7 @@ test("signed-in premium playback uses the owner-scoped cloud cache route", async
 test("premium provider defaults to Flash v2.5 and maps public errors", () => {
   const provider = new ElevenLabsProvider({ workerUrl: "https://worker.example", fetchImpl: async () => new Response() });
   equal(provider.model, "eleven_flash_v2_5");
-  equal(premiumErrorMessage("quota"), "Premium audio credits are unavailable.");
+  equal(premiumErrorMessage("quota"), "Premium audio is temporarily unavailable.");
   equal(premiumErrorMessage("network"), "Premium audio couldn’t connect.");
   equal(premiumErrorMessage("provider_auth"), "Premium audio isn’t configured correctly.");
 });

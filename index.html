@@ -138,7 +138,7 @@
           </div>
           <div class="cast-preferences">
             <label class="toggle-option"><span><strong>Read character names</strong><small>Say the character’s name before dialogue</small></span><input id="read-character-names" type="checkbox" role="switch"></label>
-            <p class="premium-estimate" id="premium-estimate"><span>Premium Audio Estimate</span><strong>Calculating…</strong></p>
+            <p class="premium-estimate" id="premium-estimate"><span>Premium Audio</span><strong>Calculating…</strong></p>
           </div>
         </fieldset>
         <div class="voice-list" id="voice-list"></div>
@@ -152,6 +152,25 @@
 
     <div class="modal-backdrop" id="fallback-modal" hidden>
       <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="fallback-title"><div class="modal-header"><div><p class="eyebrow">PLAYBACK PAUSED</p><h2 id="fallback-title">Premium audio is unavailable</h2><p id="fallback-message">You can try premium audio again or continue with Standard Audio.</p></div></div><div class="modal-footer"><button class="secondary-button" id="fallback-device" type="button">Use Standard Audio</button><button class="primary-button" id="fallback-retry" type="button">Try again</button></div></section>
+    </div>
+
+    <div class="modal-backdrop" id="premium-modal" hidden>
+      <section class="modal compact-modal premium-modal" role="dialog" aria-modal="true" aria-labelledby="premium-modal-title">
+        <div class="modal-header">
+          <div><p class="eyebrow">PREMIUM AUDIO</p><h2 id="premium-modal-title">Unlock natural voices</h2><p id="premium-modal-copy">A one-time purchase for this screenplay. No subscription.</p></div>
+          <button class="icon-button" id="close-premium-button" type="button" aria-label="Close Premium Audio window"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div class="premium-body">
+          <p class="premium-price" id="premium-price"><strong>Calculating…</strong><span>One-time purchase · No subscription</span></p>
+          <ul class="premium-includes" aria-label="Premium Audio includes">
+            <li>Natural, higher-quality voices</li>
+            <li>Character casting</li>
+            <li>Saved audio across your devices</li>
+          </ul>
+          <p class="premium-message" id="premium-message" role="status" hidden></p>
+        </div>
+        <div class="modal-footer"><button class="secondary-button" id="premium-standard-button" type="button">Continue with Standard</button><button class="primary-button" id="premium-unlock-button" type="button">Unlock Premium</button></div>
+      </section>
     </div>
 
     <noscript><p class="noscript">SpokenFrame needs JavaScript enabled to read your screenplay.</p></noscript>

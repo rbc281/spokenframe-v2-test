@@ -3,7 +3,7 @@ export class PremiumTtsError extends Error {
 }
 
 export function premiumErrorMessage(code) {
-  if (["quota", "rate_limit"].includes(code)) return "Premium audio credits are unavailable.";
+  if (["quota", "rate_limit"].includes(code)) return "Premium audio is temporarily unavailable.";
   if (["auth_required", "invalid_session"].includes(code)) return "Sign in again to use Premium Audio.";
   if (code === "premium_required") return "Premium Audio has not been unlocked for this screenplay.";
   if (code === "premium_limit") return "This screenplay has reached its Premium Audio generation limit.";

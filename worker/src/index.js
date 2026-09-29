@@ -47,7 +47,7 @@ function publicError(status, code, message, cors) { return json({ code, message 
 
 function mapUpstreamError(status) {
   if (status === 401 || status === 403) return [502, "provider_auth", "Premium audio isn’t configured correctly."];
-  if (status === 402 || status === 429) return [429, "quota", "Premium audio credits are unavailable."];
+  if (status === 402 || status === 429) return [429, "quota", "Premium audio is temporarily unavailable."];
   if (status >= 500) return [503, "provider_unavailable", "Premium audio is temporarily unavailable."];
   return [502, "provider_error", "Premium audio could not generate that passage."];
 }

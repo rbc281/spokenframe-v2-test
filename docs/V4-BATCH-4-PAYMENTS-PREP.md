@@ -1,10 +1,10 @@
-# SpokenFrame V4 — Batch 4 payment preparation
+# SpokenFrame V4 — Batch 4 payments
 
 ## Status
 
-The Stripe-independent portion of Batch 4 is implemented and tested. Checkout remains intentionally inactive until the Stripe sandbox and required Cloudflare secrets are connected.
+The Batch 4 code and infrastructure are implemented. Stripe sandbox checkout, the signed webhook, encrypted Worker secrets, Supabase billing tables, customer upgrade UI, and server-side generation controls are connected.
 
-This checkpoint does not alter current Premium Audio access. `PREMIUM_ENTITLEMENTS_REQUIRED` remains `false`, so the existing personal-beta flow continues while payment setup is incomplete.
+`PREMIUM_ENTITLEMENTS_REQUIRED` deliberately remains `false` until one real end-to-end sandbox purchase is confirmed. This preserves the existing personal-beta path and provides a safe rollback while the customer flow is validated.
 
 ## Prepared architecture
 
@@ -18,6 +18,9 @@ This checkpoint does not alter current Premium Audio access. `PREMIUM_ENTITLEMEN
 - atomic generation reservation/finalization database functions
 - an entitlement gate for private Premium Audio routes
 - a release switch that disables the legacy anonymous TTS route when entitlements are enforced
+- a customer upgrade modal with automatic page-based pricing
+- Standard Audio for guests and free accounts, using one consistent device voice
+- Premium-only multi-character Cast controls
 
 ## Price policy
 
@@ -39,14 +42,22 @@ The webhook endpoint does not rely on CORS or an Origin header. It accepts only 
 
 No Stripe key, webhook signing secret, Supabase server key, ElevenLabs key, or test credential is committed.
 
-## Activation sequence (not yet performed)
+## Activation status
 
-1. Create the Stripe sandbox.
-2. Apply the Batch 4 Supabase migration.
-3. Store `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SUPABASE_SECRET_KEY` as encrypted Cloudflare Worker secrets.
-4. Deploy the Worker and register its `/v1/billing/webhook` URL in the Stripe sandbox.
-5. Connect the frontend upgrade flow and verify sandbox checkout.
-6. Confirm unpaid denial, paid generation, cache reuse, allowance accounting, and webhook idempotency.
-7. Only after every test passes, set `PREMIUM_ENTITLEMENTS_REQUIRED` to `true`.
+Completed:
 
-Do not enable the final switch before the checkout UI and webhook have passed end-to-end sandbox testing.
+1. Stripe sandbox created.
+2. Batch 4 Supabase schema and database hardening applied.
+3. `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SUPABASE_SECRET_KEY` stored as encrypted Cloudflare Worker secrets.
+4. Signed webhook registered at `/v1/billing/webhook`.
+5. Frontend entitlement, pricing, and checkout flow connected.
+6. Automated price, signature, webhook, entitlement, allowance, and cache tests pass.
+
+Remaining release gate:
+
+1. Complete one end-to-end Stripe sandbox purchase in the deployed app.
+2. Confirm the webhook creates the entitlement and Premium Audio becomes available for only that screenplay.
+3. Confirm uncached generation, R2 replay, and generation accounting.
+4. Only then set `PREMIUM_ENTITLEMENTS_REQUIRED` to `true` and redeploy the Worker.
+
+Do not enable the final switch before the deployed checkout UI and webhook pass that end-to-end sandbox test.

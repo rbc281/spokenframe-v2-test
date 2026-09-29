@@ -37,16 +37,27 @@ export class SupabaseLibraryRepository {
   async listScreenplays() {
     const ownerId = this.#ownerId();
     try {
-      const { data, error } = await this.client
-        .from("screenplays")
-        .select("id,client_fingerprint,title,source_format,page_count,page_count_method,spoken_character_count,created_at,updated_at,playback_states(current_unit,progress_percent,playback_speed,current_scene,updated_at),screenplay_settings(audio_quality,read_character_names,updated_at)")
-        .eq("owner_user_id", ownerId)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
+      const [screenplaysResult, entitlementsResult] = await Promise.all([
+        this.client
+          .from("screenplays")
+          .select("id,client_fingerprint,title,source_format,page_count,page_count_method,spoken_character_count,created_at,updated_at,playback_states(current_unit,progress_percent,playback_speed,current_scene,updated_at),screenplay_settings(audio_quality,read_character_names,updated_at)")
+          .eq("owner_user_id", ownerId)
+          .order("updated_at", { ascending: false }),
+        this.client
+          .from("premium_entitlements")
+          .select("screenplay_id,status,amount_paid_cents,page_count_at_purchase")
+          .eq("owner_user_id", ownerId)
+      ]);
+      if (screenplaysResult.error) throw screenplaysResult.error;
+      if (entitlementsResult.error) throw entitlementsResult.error;
+      const entitlements = new Map((entitlementsResult.data || []).map((item) => [item.screenplay_id, item]));
+      const data = screenplaysResult.data || [];
       return (data || []).map((item) => ({
         ...item,
         playback: Array.isArray(item.playback_states) ? (item.playback_states[0] || {}) : (item.playback_states || {}),
-        settings: Array.isArray(item.screenplay_settings) ? (item.screenplay_settings[0] || {}) : (item.screenplay_settings || {})
+        settings: Array.isArray(item.screenplay_settings) ? (item.screenplay_settings[0] || {}) : (item.screenplay_settings || {}),
+        entitlement: entitlements.get(item.id) || null,
+        premium: entitlements.get(item.id)?.status === "active"
       }));
     } catch (error) { throw libraryError(error); }
   }

@@ -63,7 +63,7 @@ test("maps upstream quota errors to a safe public response", async () => {
     assert.equal(response.status, 429);
     const payload = await response.json();
     assert.equal(payload.code, "quota");
-    assert.equal(payload.message, "Premium audio credits are unavailable.");
+    assert.equal(payload.message, "Premium audio is temporarily unavailable.");
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -238,6 +238,24 @@ test("creates one-time checkout from the server-owned screenplay page count", as
     assert.equal(stripeForm.get("metadata[screenplay_id]"), screenplayId);
     assert.equal(supabaseServiceHeaders.apikey, "sb_secret_supabase-server-test-key");
     assert.equal("Authorization" in supabaseServiceHeaders, false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("returns server-calculated screenplay pricing with entitlement status", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: "user-1", email: "reader@example.com" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (value.includes("/rest/v1/screenplays?")) {
+      return new Response(JSON.stringify([{ id: screenplayId, client_fingerprint: fingerprint, title: "PASSENGER", page_count: 120, spoken_character_count: 100_000 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (value.includes("/rest/v1/premium_entitlements?")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const response = await worker.fetch(privateRequest(`/v1/screenplays/${screenplayId}/entitlement`), billingEnvironment());
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { premium: false, checkoutAvailable: true, status: "standard", pages: 120, amountCents: 1500, displayAmount: "$15" });
   } finally { globalThis.fetch = originalFetch; }
 });
 

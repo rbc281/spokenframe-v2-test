@@ -127,7 +127,7 @@ Never paste this key into:
 - an issue or screenshot
 - this chat
 
-Keep your restricted ElevenLabs credit/usage limit enabled. The personal beta has no user login, and origin rules are not a substitute for authentication.
+Keep your restricted ElevenLabs usage limit enabled. Guest Standard Audio needs no account; private libraries and Premium Audio use authenticated owner checks. Origin rules are still not a substitute for authentication.
 
 ### 7A. Create the private R2 bucket
 

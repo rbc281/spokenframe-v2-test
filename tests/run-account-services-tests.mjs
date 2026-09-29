@@ -76,7 +76,7 @@ class Query {
   upsert(payload, options) { this.operation.upsert = payload; this.operation.options = options; this.client.calls.push([this.table, this.operation]); return this; }
   single() { return Promise.resolve({ data: { id: "screenplay-1", ...this.operation.upsert }, error: null }); }
   maybeSingle() { this.client.calls.push([this.table, this.operation]); return Promise.resolve({ data: this.client.rows[this.table]?.[0] || null, error: null }); }
-  then(resolve, reject) { return Promise.resolve({ data: null, error: null }).then(resolve, reject); }
+  then(resolve, reject) { this.client.calls.push([this.table, this.operation]); return Promise.resolve({ data: this.client.rows[this.table] || [], error: null }).then(resolve, reject); }
 }
 
 const database = {
@@ -84,7 +84,8 @@ const database = {
   rows: {
     screenplays: [{ id: "screenplay-1", title: "PASSENGER", playback_states: [{ progress_percent: 27, current_scene: "INT. CAR - NIGHT" }], screenplay_settings: [{ audio_quality: "standard" }] }],
     playback_states: [{ current_unit: 2, playback_speed: 1.25 }],
-    screenplay_settings: [{ audio_quality: "standard", read_character_names: false, cast_assignments: {} }]
+    screenplay_settings: [{ audio_quality: "standard", read_character_names: false, cast_assignments: {} }],
+    premium_entitlements: [{ screenplay_id: "screenplay-1", status: "active", amount_paid_cents: 1500, page_count_at_purchase: 120 }]
   },
   from(table) { return new Query(this, table); }
 };
@@ -97,6 +98,8 @@ const listed = (await library.listScreenplays())[0];
 assert.equal(listed.title, "PASSENGER");
 assert.equal(listed.playback.progress_percent, 27);
 assert.equal(listed.settings.audio_quality, "standard");
+assert.equal(listed.premium, true);
+assert.equal(listed.entitlement.amount_paid_cents, 1500);
 const saved = await library.saveScreenplay(record);
 assert.equal(saved.id, "screenplay-1");
 const metadataCall = database.calls.find(([table, operation]) => table === "screenplays" && operation.upsert);
